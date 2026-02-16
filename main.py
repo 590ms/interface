@@ -38,6 +38,7 @@ class POSSystem:
 
         self.input_box = tk.Entry(self.main_frame, font=("Arial", 24), width=30)
         self.input_box.place(relx=0.05, rely=0.15)
+        self.input_box.focus_set()
 
         # Create the Number Pad using a loop
         self.create_keypad()
@@ -75,10 +76,13 @@ class POSSystem:
     def keypad_click(self, char):
         if char == 'C':
             self.input_box.delete(0, tk.END)
+            self.input_box.focus_set()
         elif char == 'Enter':
             self.add_item()
+            self.input_box.focus_set()
         else:
             self.input_box.insert(tk.END, char)
+            self.input_box.focus_set()
 
     def add_item(self):
         length = len(products)
@@ -87,10 +91,11 @@ class POSSystem:
             for i in range(length):
                 if  item_id == products[i]:
                     # In a real app, you'd look up the ID in a database
-                    self.product_list.insert(tk.END, f"{products[i+1]} ...... {products[i+2]}€")
+                    self.product_list.insert(tk.END, f"{products[i+1].title():<90} {products[i+2]}€")
                     self.input_box.delete(0, tk.END)
                     self.sum += float(products[i+2])
-                    self.totalnum.config(text=f"{self.sum}")
+                    self.totalnum.config(text=f"{self.sum:.2f}")
+                    self.input_box.focus_set()
 
 
 
