@@ -1,4 +1,5 @@
-01, coca cola, 1.00, 0.50
-02, sprite, 1.00, 0.50
-03, lays alati, 2.50, 1.50
-04, lays rigani, 2.50, 1.50
+01, coca cola, 1.00, 0.50, 4
+02, sprite, 1.00, 0.50, 2
+03, lays alati, 2.50, 1.50, 5
+04, lays rigani, 2.50, 1.50, 7
+05, fanta, 2.5, 1.5, 7
