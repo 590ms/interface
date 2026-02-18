@@ -17,6 +17,8 @@ for line in lines:
     products.append(xprice)
     products.append(stock)
 
+# def add()
+
 
 
 

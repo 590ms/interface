@@ -127,6 +127,7 @@ class POSSystem:
 
     def stock(self):
         self.clear_frame()
+        self.sum =0.0
         tk.Label(self.main_frame, text="INVENTORY", font=("Segoe UI", 20, "bold"), 
                  bg=self.bg_color, fg=self.text_color).pack(pady=30)
         
@@ -138,12 +139,50 @@ class POSSystem:
         stock_display.pack(side="left", fill="both", expand=True, padx=20, pady=20)
 
         for i in range(0, len(products), 5):
-            stock_display.insert(tk.END, f"{products[i]:<10} {products[i+1].upper():<30} {products[i+2]}€")
+            stock_display.insert(tk.END, f"{products[i]:<10} {products[i+1].upper():<20} {products[i+4]:<10} {products[i+2]}€")
 
         back_btn = tk.Button(self.main_frame, text="RETURN", bg=self.accent_color, 
                              fg=self.text_color, font=("Segoe UI", 10, "bold"), bd=0, 
                              command=self.show_pos_screen)
-        back_btn.place(relx=0.45, rely=0.8, relwidth=0.1, relheight=0.05)
+        back_btn.place(relx=0.35, rely=0.8, relwidth=0.1, relheight=0.05)
+
+        add_btn = tk.Button(self.main_frame, text="ADD", bg=self.accent_color, 
+                             fg=self.text_color, font=("Segoe UI", 10, "bold"), bd=0, 
+                             command=self.add_screen)
+        add_btn.place(relx=0.55, rely=0.8, relwidth=0.1, relheight=0.05)
+     
+
+    def add_screen(self):
+        add_window = tk.Toplevel(self.root)
+        add_window.title("Add")
+        
+        # 1. Define window dimensions
+        window_width = 400
+        window_height = 500
+        
+        # 2. Get screen dimensions
+        screen_width = add_window.winfo_screenwidth()
+        screen_height = add_window.winfo_screenheight()
+        
+        # 3. Calculate the center position
+        center_x = int(screen_width / 2 - window_width / 2)
+        center_y = int(screen_height / 2 - window_height / 2)
+        
+        # 4. Set the geometry with offsets: "widthxheight+x+y"
+        add_window.geometry(f"{window_width}x{window_height}+{center_x}+{center_y}")
+        
+        add_window.configure(bg=self.bg_color)
+        
+        title = tk.Label(
+            add_window, 
+            text="New Inventory", 
+            font=("Segoe UI", 16, "bold"), 
+            bg=self.bg_color, 
+            fg=self.text_color
+        )
+        title.pack(pady=10)
+            
+
 
 if __name__ == "__main__":
     root = tk.Tk()
