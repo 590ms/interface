@@ -1,118 +1,89 @@
+import mysql.connector
 from tkinter import messagebox
-import os 
 
-products= []
+# Database Configuration
+db_config = {
+    'host': 'localhost',
+    'user': 'root',
+    'password': '12345678', 
+    'database': 'shop_db' 
+}
+
+products = []
+
+def get_connection():
+    return mysql.connector.connect(**db_config)
 
 def update_memory():
-    # We clear the global products list and refill it from the file
     global products
-    products.clear() 
-    
-    if os.path.exists('products.txt'):
-        with open('products.txt', 'r') as f:
-            for line in f:
-                line_values = [v.strip() for v in line.strip().split(',')]
-                if len(line_values) == 5:
-                    products.extend(line_values)
+    products.clear()
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        # Selecting: ID, Name, Retail, Wholesale, Stock
+        cursor.execute("SELECT product_id, name, retail_price, wholesale_price, stock_count FROM products")
+        rows = cursor.fetchall()
+        for row in rows:
+            # Flatten into the list format your frontend expects [id, name, retail, whole, stock, id, name...]
+            products.extend([str(row[0]), str(row[1]), str(row[2]), str(row[3]), str(row[4])])
+        conn.close()
+    except Exception as e:
+        print(f"Database Error: {e}")
 
 def delete_product(target_code):
-    file_path = 'products.txt'
-    if not os.path.exists(file_path):
-        return
-
-    # Read all lines and keep only the ones that DON'T match the ID
-    with open(file_path, 'r') as f:
-        lines = f.readlines()
-    
-    with open(file_path, 'w') as f:
-        for line in lines:
-            if not line.strip(): continue
-            if not line.startswith(f"{target_code},"):
-                f.write(line)
-    
-    # Refresh the global list immediately
-    update_memory()
-
-
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM products WHERE product_id = %s", (target_code,))
+        conn.commit()
+        conn.close()
+        update_memory()
+    except Exception as e:
+        messagebox.showerror("Error", f"Could not delete: {e}")
 
 def add_product(target_code, name, lprice, xprice, amount_to_add):
-    file_path = 'products.txt'
-    all_products = []
-    id_exists = False
-    name_exists_elsewhere = False
-    existing_id_for_name = ""
-
-    # 1. Read and Process
-    if os.path.exists(file_path):
-        with open(file_path, 'r') as f:
-            for line in f:
-                if not line.strip(): continue
-                parts = [p.strip() for p in line.split(',')]
-                
-                if len(parts) == 5:
-                    p_code, p_name, p_lprice, p_xprice, p_stock = parts
-                    
-                    # CASE: ID MATCHES
-                    if p_code == target_code:
-                        # We update EVERYTHING to the new inputs, and SUM the stock
-                        new_stock = int(p_stock) + int(amount_to_add)
-                        all_products.append(f"{target_code}, {name}, {lprice}, {xprice}, {new_stock}\n")
-                        id_exists = True
-                    
-                    # CASE: NAME MATCHES (but different ID)
-                    elif p_name.lower() == name.lower():
-                        name_exists_elsewhere = True
-                        existing_id_for_name = p_code
-                        all_products.append(line)
-                    
-                    else:
-                        all_products.append(line)
-
-    # 2. Fail-Safe Logic
-    if name_exists_elsewhere and not id_exists:
-        choice = messagebox.askyesno("Name Conflict", 
-            f"The name '{name}' already exists under ID: {existing_id_for_name}.\n\n"
-            f"Do you want to create a NEW entry with ID {target_code}?\n"
-            f"(Selecting 'No' will update the existing ID {existing_id_for_name} instead)")
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
         
-        if choice:
-            all_products.append(f"{target_code}, {name}, {lprice}, {xprice}, {amount_to_add}\n")
+        # Check if ID exists
+        cursor.execute("SELECT stock_count FROM products WHERE product_id = %s", (target_code,))
+        id_row = cursor.fetchone()
+        
+        # Check if Name exists elsewhere
+        cursor.execute("SELECT product_id, stock_count FROM products WHERE name = %s AND product_id != %s", (name, target_code))
+        name_row = cursor.fetchone()
+
+        if id_row:
+            # CASE: ID MATCHES - Update and sum stock
+            new_stock = int(id_row[0]) + int(amount_to_add)
+            cursor.execute("""UPDATE products SET name=%s, retail_price=%s, wholesale_price=%s, stock_count=%s 
+                           WHERE product_id=%s""", (name, lprice, xprice, new_stock, target_code))
+        
+        elif name_row:
+            # CASE: NAME MATCHES (different ID)
+            existing_id = name_row[0]
+            choice = messagebox.askyesno("Name Conflict", 
+                f"The name '{name}' already exists under ID: {existing_id}.\n\n"
+                f"Do you want to create a NEW entry with ID {target_code}?\n"
+                f"(Selecting 'No' will update the existing ID {existing_id} instead)")
+            
+            if choice:
+                cursor.execute("INSERT INTO products VALUES (%s, %s, %s, %s, %s)", 
+                               (target_code, name, lprice, xprice, amount_to_add))
+            else:
+                new_stock = int(name_row[1]) + int(amount_to_add)
+                cursor.execute("""UPDATE products SET name=%s, retail_price=%s, wholesale_price=%s, stock_count=%s 
+                               WHERE product_id=%s""", (name, lprice, xprice, new_stock, existing_id))
         else:
-            # Update the old ID with new prices/name and add quantity
-            for i, line in enumerate(all_products):
-                if line.startswith(f"{existing_id_for_name},"):
-                    parts = [p.strip() for p in line.split(',')]
-                    new_qty = int(parts[4]) + int(amount_to_add)
-                    # We update name and prices here too
-                    all_products[i] = f"{existing_id_for_name}, {name}, {lprice}, {xprice}, {new_qty}\n"
-    
-    elif not id_exists:
-        # COMPLETELY NEW ID AND NAME
-        all_products.append(f"{target_code}, {name}, {lprice}, {xprice}, {amount_to_add}\n")
+            # COMPLETELY NEW
+            cursor.execute("INSERT INTO products VALUES (%s, %s, %s, %s, %s)", 
+                           (target_code, name, lprice, xprice, amount_to_add))
 
-    # 3. Save
-    with open(file_path, 'w') as f:
-        f.writelines(all_products)
-
+        conn.commit()
+        conn.close()
+        update_memory()
+    except Exception as e:
+        messagebox.showerror("Error", f"Database Add Failed: {e}")
 
 update_memory()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
