@@ -18,7 +18,6 @@ class POSSystem:
 
         self.main_frame = tk.Frame(root, bg=self.bg_color)
         self.main_frame.pack(expand=True, fill="both")
-
         self.root.bind("<Escape>", lambda e: self.root.destroy())
         self.show_pos_screen()
 
@@ -103,6 +102,7 @@ class POSSystem:
         self.input_box.focus_set()
 
     def add_item(self):
+        
         item_id = self.input_box.get()
         if item_id in products:
             for i in range(0, len(products), 5):
@@ -119,7 +119,6 @@ class POSSystem:
             messagebox.showerror("Error", "Product Not Recognized")
             self.input_box.delete(0, tk.END)
         self.input_box.focus_set()
-
     def stock(self):
         self.clear_frame()
         self.sum = 0.0
@@ -189,6 +188,7 @@ class POSSystem:
                       self.refresh_stock_list(self.stock_display),
                       add_window.destroy()
                   ]).place(relx=0.3, rely=0.8, relwidth=0.4, relheight=0.1)
+
 
 if __name__ == "__main__":
     root = tk.Tk()
