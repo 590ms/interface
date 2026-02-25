@@ -44,17 +44,17 @@ def add_product(target_code, name, lprice, xprice, amount_to_add):
         conn = get_connection()
         cursor = conn.cursor()
         
-        # FIXED: Column names changed to code and stock
+        
         cursor.execute("SELECT stock FROM products WHERE code = %s", (target_code,))
         id_row = cursor.fetchone()
         
-        # FIXED: Column names changed to code and stock
+       
         cursor.execute("SELECT code, stock FROM products WHERE name = %s AND code != %s", (name, target_code))
         name_row = cursor.fetchone()
 
         if id_row:
             new_stock = int(id_row[0]) + int(amount_to_add)
-            # FIXED: Column names changed to lprice, xprice, stock, code
+            
             cursor.execute("""UPDATE products SET name=%s, lprice=%s, xprice=%s, stock=%s 
                            WHERE code=%s""", (name, lprice, xprice, new_stock, target_code))
         
@@ -70,11 +70,11 @@ def add_product(target_code, name, lprice, xprice, amount_to_add):
                                (target_code, name, lprice, xprice, amount_to_add))
             else:
                 new_stock = int(name_row[1]) + int(amount_to_add)
-                # FIXED: Column names changed
+                
                 cursor.execute("""UPDATE products SET name=%s, lprice=%s, xprice=%s, stock=%s 
                                WHERE code=%s""", (name, lprice, xprice, new_stock, existing_id))
         else:
-            # FIXED: Explicit column naming for the INSERT
+            
             cursor.execute("INSERT INTO products (code, name, lprice, xprice, stock) VALUES (%s, %s, %s, %s, %s)", 
                            (target_code, name, lprice, xprice, amount_to_add))
 
@@ -83,5 +83,46 @@ def add_product(target_code, name, lprice, xprice, amount_to_add):
         update_memory()
     except Exception as e:
         messagebox.showerror("Error", f"Database Add Failed: {e}")
+
+
+def quantity_remove(item_id, quantity):
+    """
+    quantity: The amount to subtract from stock.
+    - If positive (e.g. 1): Removes 1 from database.
+    - If negative (e.g. -1): Adds 1 back to database (e.g. when reducing cart qty).
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        # Check current stock first
+        cursor.execute("SELECT stock FROM products WHERE code = %s", (item_id,))
+        result = cursor.fetchone()
+        
+        if not result:
+            messagebox.showerror("Error", "Product not found in database.")
+            return False
+            
+        current_db_stock = int(result[0])
+        
+        # FAILSAFE: Ensure the change doesn't make stock negative
+        if current_db_stock - int(quantity) < 0:
+            messagebox.showwarning("Out of Stock", f"Only {current_db_stock} units remaining.")
+            conn.close()
+            return False
+
+        # Update the existing stock
+        sql = "UPDATE products SET stock = stock - %s WHERE code = %s"
+        cursor.execute(sql, (quantity, item_id))
+        conn.commit()
+        conn.close()
+        
+        update_memory() # Sync global products list
+        return True
+        
+    except Exception as e:
+        print(f"Backend Error: {e}")
+        return False
+
 
 update_memory()

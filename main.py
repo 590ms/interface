@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, simpledialog
 from backend import *
 
 class POSSystem:
@@ -30,7 +30,7 @@ class POSSystem:
         self.root.bind("<Return>", lambda e: self.add_item())
 
         self.navi1 = tk.Button(self.main_frame, text="STOCK", bg=self.card_color, fg=self.accent_color, 
-                               font=("Segoe UI", 9, "bold"), bd=0, cursor="hand2", command=self.stock)
+                                font=("Segoe UI", 9, "bold"), bd=0, cursor="hand2", command=self.stock)
         self.navi1.place(relx=0.02, rely=0.02, relwidth=0.06, relheight=0.04)
 
         order_container = tk.Frame(self.main_frame, bg=self.card_color, bd=0)
@@ -39,9 +39,13 @@ class POSSystem:
         tk.Label(order_container, text="CURRENT ORDER", font=("Segoe UI", 12, "bold"), 
                  bg=self.card_color, fg=self.text_color).pack(pady=10)
 
+        # Updated Listbox with binding
         self.product_list = tk.Listbox(order_container, font=("Consolas", 10), bg=self.bg_color, 
-                                       fg=self.text_color, bd=0, highlightthickness=0)
+                                        fg=self.text_color, bd=0, highlightthickness=0)
         self.product_list.pack(padx=15, pady=5, fill="both", expand=True)
+        
+        # BINDING: Double click to change quantity
+        self.product_list.bind("<Double-Button-1>", self.change_quantity)
 
         total_frame = tk.Frame(order_container, bg=self.card_color)
         total_frame.pack(fill="x", padx=15, pady=15)
@@ -50,7 +54,7 @@ class POSSystem:
                  bg=self.card_color, fg=self.text_color).pack(side="left")
         
         self.totalnum = tk.Label(total_frame, text=f"{self.sum:.2f}€", font=("Segoe UI", 18, "bold"), 
-                                 bg=self.card_color, fg=self.success_color)
+                                  bg=self.card_color, fg=self.success_color)
         self.totalnum.pack(side="right")
 
         tk.Label(self.main_frame, text="READY TO SCAN", font=("Segoe UI", 10), 
@@ -102,24 +106,60 @@ class POSSystem:
         self.input_box.focus_set()
 
     def add_item(self):
-        
         item_id = self.input_box.get()
-        if item_id in products:
-            for i in range(0, len(products), 5):
-                if item_id == products[i]:
+        # Search existing stock in memory
+        for i in range(0, len(products), 5):
+            if item_id == products[i]:
+                # Try to remove 1 from database
+                if quantity_remove(item_id, 1):
                     name = products[i+1].upper()
-                    price = f"{products[i+2]}€"
-                    self.product_list.insert(tk.END, f"{name:<25} {price:>10}")
-                    self.sum += float(products[i+2])
+                    price = float(products[i+2])
+                    
+                    self.product_list.insert(tk.END, f"{item_id:<5} {name:<15} 1 {price:>10.2f}€")
+                    self.sum += price
                     self.totalnum.config(text=f"{self.sum:.2f}€")
                     self.input_box.delete(0, tk.END)
                     self.product_list.yview(tk.END)
-                    break
-        else:
-            messagebox.showerror("Error", "Product Not Recognized")
-            self.input_box.delete(0, tk.END)
-        self.input_box.focus_set()
+                return # Exit once found and processed
+        
+        messagebox.showerror("Error", "Product Not Recognized or Out of Stock")
+        self.input_box.delete(0, tk.END)
+
+    def change_quantity(self, event):
+        selection = self.product_list.curselection()
+        if not selection: return
+        
+        index = selection[0]
+        line = self.product_list.get(index)
+        parts = line.split()
+        
+        item_id = parts[0]
+        old_cart_qty = int(parts[-2])
+        price_per_unit = float(parts[-1].replace('€', '')) / old_cart_qty
+        
+        # Ask for the absolute new quantity in the cart
+        new_cart_qty = simpledialog.askinteger("Edit Quantity", f"Current in cart: {old_cart_qty}\nEnter total quantity:", minvalue=0)
+        
+        if new_cart_qty is not None:
+            # Calculate the difference to send to database
+            # If new is 5 and old was 2, we need to remove 3 more from DB.
+            # If new is 1 and old was 5, we need to add 4 back to DB (diff will be -4).
+            diff = new_cart_qty - old_cart_qty
+            
+            if quantity_remove(item_id, diff):
+                # Update the running total
+                self.sum += (diff * price_per_unit)
+                self.totalnum.config(text=f"{self.sum:.2f}€")
+                
+                # Update Listbox
+                self.product_list.delete(index)
+                if new_cart_qty > 0:
+                    name = parts[1]
+                    new_line_price = new_cart_qty * price_per_unit
+                    self.product_list.insert(index, f"{item_id:<5} {name:<15} {new_cart_qty} {new_line_price:>10.2f}€")
+
     def stock(self):
+        update_memory()
         self.clear_frame()
         self.sum = 0.0
         tk.Label(self.main_frame, text="INVENTORY", font=("Segoe UI", 20, "bold"), 
@@ -138,7 +178,6 @@ class POSSystem:
         tk.Button(self.main_frame, text="RETURN", bg=self.accent_color, fg=self.text_color, 
                   font=("Segoe UI", 10, "bold"), bd=0, command=self.show_pos_screen).place(relx=0.3, rely=0.8, relwidth=0.1, relheight=0.05)
 
-        # DELETE BUTTON
         tk.Button(self.main_frame, text="DELETE", bg=self.danger_color, fg=self.text_color, 
                   font=("Segoe UI", 10, "bold"), bd=0, command=self.delete_item).place(relx=0.45, rely=0.8, relwidth=0.1, relheight=0.05)
 
