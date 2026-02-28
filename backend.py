@@ -1,4 +1,4 @@
-import mysql.connector
+import pymysql as mysql
 from tkinter import messagebox
 
 # Database Configuration
@@ -11,8 +11,9 @@ db_config = {
 
 products = []
 
+
 def get_connection():
-    return mysql.connector.connect(**db_config)
+    return mysql.connect(**db_config)
 
 def update_memory():
     global products
@@ -28,7 +29,16 @@ def update_memory():
     except Exception as e:
         print(f"Database Error: {e}")
 
+def is_valid_id(item_id):
+    try:
+        int(item_id)
+        return True
+    except (ValueError, TypeError):
+        messagebox.showerror("Invalid Input", "The Item ID must be a whole number (integer).")
+        return False
+
 def delete_product(target_code):
+
     try:
         conn = get_connection()
         cursor = conn.cursor()
@@ -40,6 +50,8 @@ def delete_product(target_code):
         messagebox.showerror("Error", f"Could not delete: {e}")
 
 def add_product(target_code, name, lprice, xprice, amount_to_add):
+    if not is_valid_id(target_code):
+        return
     try:
         conn = get_connection()
         cursor = conn.cursor()
