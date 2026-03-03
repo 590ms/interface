@@ -29,9 +29,15 @@ class POSSystem:
         self.clear_frame()
         self.root.bind("<Return>", lambda e: self.add_item())
 
-        self.navi1 = tk.Button(self.main_frame, text="STOCK", bg=self.card_color, fg=self.accent_color, 
+        self.navi1 = tk.Button(self.main_frame, text="STOCK", bg=self.card_color, fg=self.accent_color,
                                 font=("Segoe UI", 9, "bold"), bd=0, cursor="hand2", command=self.stock)
         self.navi1.place(relx=0.02, rely=0.02, relwidth=0.06, relheight=0.04)
+
+
+        self.navi2 = tk.Button(self.main_frame, text="CLIENTS", bg=self.card_color, fg=self.accent_color,
+                                font=("Segoe UI", 9, "bold"), bd=0, cursor="hand2", command=self.clients)
+        self.navi2.place(relx=0.1, rely=0.02, relwidth=0.06, relheight=0.04)
+
 
         order_container = tk.Frame(self.main_frame, bg=self.card_color, bd=0)
         order_container.place(relx=0.62, rely=0.08, relwidth=0.35, relheight=0.8)
@@ -71,9 +77,14 @@ class POSSystem:
                                   font=("Segoe UI", 9, "bold"), bd=0, command=self.root.destroy)
         self.exit_btn.place(relx=0.92, rely=0.94, relwidth=0.06, relheight=0.04)
 
+        self.cash_btn = tk.Button(self.main_frame, text="cash", bg=self.success_color, fg=self.text_color,
+                                  font=("Segoe UI", 9, "bold"), bd=0, command=self.root.destroy)
+        self.cash_btn.place(relx=0.5, rely=0.30, relwidth=0.08, relheight=0.05)
+
+
     def create_keypad(self):
         keypad_frame = tk.Frame(self.main_frame, bg=self.bg_color)
-        keypad_frame.place(relx=0.1, rely=0.25, relwidth=0.35, relheight=0.6)
+        keypad_frame.place(relx=0.1, rely=0.25, relwidth=0.35, relheight=0.6)  
 
         for i in range(3): keypad_frame.columnconfigure(i, weight=1)
         for i in range(4): keypad_frame.rowconfigure(i, weight=1)
@@ -184,6 +195,9 @@ class POSSystem:
         tk.Button(self.main_frame, text="ADD", bg=self.accent_color, fg=self.text_color, 
                   font=("Segoe UI", 10, "bold"), bd=0, command=self.add_screen).place(relx=0.6, rely=0.8, relwidth=0.1, relheight=0.05)
 
+
+
+
     def delete_item(self):
         selected = self.stock_display.curselection()
         if not selected:
@@ -227,6 +241,92 @@ class POSSystem:
                       self.refresh_stock_list(self.stock_display),
                       add_window.destroy()
                   ]).place(relx=0.3, rely=0.8, relwidth=0.4, relheight=0.1)
+
+    def clients(self):
+        update_clients_memory()  # Ensure list is fresh
+        self.clear_frame()
+
+        tk.Label(self.main_frame, text="CLIENT DATABASE", font=("Segoe UI", 20, "bold"),
+                 bg=self.bg_color, fg=self.text_color).pack(pady=30)
+
+        list_container = tk.Frame(self.main_frame, bg=self.card_color)
+        list_container.place(relx=0.1, rely=0.15, relwidth=0.8, relheight=0.6)
+
+        self.clients_display = tk.Listbox(list_container, font=("Consolas", 11), bg=self.card_color,
+                                          fg=self.text_color, bd=0, highlightthickness=0)
+        self.clients_display.pack(side="left", fill="both", expand=True, padx=20, pady=20)
+
+        # Step 5: Matching your backend fetch (id, name, phone, tin, balance)
+        for i in range(0, len(clients), 5):
+            self.clients_display.insert(tk.END,
+                                        f"ID: {clients[i]:<6} | NAME: {clients[i + 1].upper():<20} | TIN: {clients[i + 3]:<12} | BAL: {clients[i + 4]}€")
+
+        # Navigation Buttons
+        tk.Button(self.main_frame, text="RETURN", bg=self.accent_color, fg=self.text_color,
+                  font=("Segoe UI", 10, "bold"), bd=0, command=self.show_pos_screen).place(relx=0.3, rely=0.8,
+                                                                                           relwidth=0.1, relheight=0.05)
+
+        tk.Button(self.main_frame, text="DELETE CLIENT", bg=self.danger_color, fg=self.text_color,
+                  font=("Segoe UI", 10, "bold"), bd=0, command=self.delete_item).place(relx=0.45, rely=0.8,
+                                                                                                relwidth=0.1,
+                                                                                                relheight=0.05)
+
+        tk.Button(self.main_frame, text="ADD NEW", bg=self.success_color, fg=self.text_color,
+                  font=("Segoe UI", 10, "bold"), bd=0, command=self.add_screen_clients).place(relx=0.6, rely=0.8,
+                                                                                              relwidth=0.1,
+                                                                                              relheight=0.05)
+
+    def add_screen_clients(self):
+        add_window = tk.Toplevel(self.root)
+        add_window.title("Register New Client")
+        add_window.geometry("600x650")
+        add_window.configure(bg=self.bg_color)
+
+        tk.Label(add_window, text="CLIENT REGISTRATION", font=("Segoe UI", 16, "bold"),
+                 bg=self.bg_color, fg=self.text_color).pack(pady=20)
+
+        # 1. Define the 7 fields required by your backend add_client function
+        # Each tuple is (Label Name, Vertical Position)
+        client_fields = [
+            ("Client ID:", 0.15),
+            ("Name:", 0.25),
+            ("Phone:", 0.35),
+            ("Email:", 0.45),
+            ("TIN:", 0.55),
+            ("Profession:", 0.65),
+            ("Initial Balance:", 0.75)
+        ]
+
+        self.client_entries = []  # Using self to keep track of them easily
+
+        # 2. Loop through the list to create ALL fields
+        for label_text, rely in client_fields:
+            tk.Label(add_window, text=label_text, font=("Segoe UI", 11, "bold"),
+                     bg=self.bg_color, fg=self.text_color).place(relx=0.05, rely=rely)
+
+            e = tk.Entry(add_window, font=("Segoe UI", 12), bg=self.card_color,
+                         fg=self.text_color, bd=0, insertbackground="white")
+            e.place(relx=0.35, rely=rely, relwidth=0.55, relheight=0.05)
+            self.client_entries.append(e)
+
+        # 3. Save Function that collects data from all fields
+        def save_action():
+            data = [entry.get() for entry in self.client_entries]
+            # Unpacks the list into: id, name, phone, email, tin, profession, balance
+            add_client(*data)
+            self.refresh_clients_list()
+            add_window.destroy()
+
+        tk.Button(add_window, text="CONFIRM REGISTRATION", bg=self.success_color,
+                  fg=self.text_color, font=("Segoe UI", 11, "bold"), bd=0, cursor="hand2",
+                  command=save_action).place(relx=0.3, rely=0.88, relwidth=0.4, relheight=0.07)
+    def refresh_clients_list(self):
+        update_clients_memory()
+        if hasattr(self, 'clients_display'):
+            self.clients_display.delete(0, tk.END)
+            for i in range(0, len(clients), 5):
+                self.clients_display.insert(tk.END,
+                                            f"ID: {clients[i]:<6} | NAME: {clients[i + 1].upper():<20} | TIN: {clients[i + 3]:<12} | BAL: {clients[i + 4]}€")
 
 
 if __name__ == "__main__":

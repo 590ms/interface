@@ -10,6 +10,7 @@ db_config = {
 }
 
 products = []
+clients= []
 
 
 def get_connection():
@@ -135,6 +136,51 @@ def quantity_remove(item_id, quantity):
     except Exception as e:
         print(f"Backend Error: {e}")
         return False
+def update_clients_memory():
+    global clients
+    clients.clear()
+    try:
+        conn=get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT client_id, name, phone,tin, balance FROM clients")
+        rows=cursor.fetchall()
+        for row in rows:
+            clients.extend([str(row[0]), str(row[1]), str(row[2]), str(row[3]) ,str(row[4])])
+        conn.close()
+    except Exception as e:
+        print(f"Database Error (Clients): {e}")
+
+
+def add_client(client_id, name, phone, email,tin,profession, initial_balance=0):
+    if not is_valid_id(client_id):
+        return
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        sql = "INSERT INTO clients (client_id, name, phone, email,tin,profession ,balance ) VALUES (%s, %s, %s, %s, %s,%s,%s)"
+        cursor.execute(sql, (client_id, name, phone, email, tin,profession , initial_balance))
+
+        conn.commit()
+        conn.close()
+        update_clients_memory()
+        messagebox.showinfo("Success", "Client added successfully!")
+    except Exception as e:
+        messagebox.showerror("Error", f"Failed to add client: {e}")
+
+
+def delete_client(client_id):
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM clients WHERE client_id = %s", (client_id,))
+        conn.commit()
+        conn.close()
+        update_clients_memory()
+    except Exception as e:
+        messagebox.showerror("Error", f"Could not delete client: {e}")
+
 
 
 update_memory()
+update_clients_memory()
