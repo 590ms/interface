@@ -80,7 +80,7 @@ class POSSystem:
                                   font=("Segoe UI", 9, "bold"), bd=0, command=self.root.destroy)
         self.exit_btn.place(relx=0.92, rely=0.94, relwidth=0.06, relheight=0.04)
 
-        self.cash_btn = tk.Button(self.main_frame, text="CASH", bg=self.success_color, fg=self.text_color,
+        self.cash_btn = tk.Button(self.main_frame, text="CASH", bg=self.accent_color, fg=self.text_color,
                                   font=("Segoe UI", 9, "bold"), bd=0, command=self.handle_cash)
         self.cash_btn.place(relx=0.5, rely=0.30, relwidth=0.08, relheight=0.05)
 
@@ -305,7 +305,7 @@ class POSSystem:
                                                                                                 relwidth=0.1,
                                                                                                 relheight=0.05)
 
-        tk.Button(self.main_frame, text="ADD NEW", bg=self.success_color, fg=self.text_color,
+        tk.Button(self.main_frame, text="ADD NEW", bg=self.accent_color, fg=self.text_color,
                   font=("Segoe UI", 10, "bold"), bd=0, command=self.add_screen_clients).place(relx=0.6, rely=0.8,
                                                                                               relwidth=0.1,
                                                                                               relheight=0.05)
@@ -351,7 +351,7 @@ class POSSystem:
             self.refresh_clients_list()
             add_window.destroy()
 
-        tk.Button(add_window, text="CONFIRM REGISTRATION", bg=self.success_color,
+        tk.Button(add_window, text="CONFIRM REGISTRATION", bg=self.accent_color,
                   fg=self.text_color, font=("Segoe UI", 11, "bold"), bd=0, cursor="hand2",
                   command=save_action).place(relx=0.3, rely=0.88, relwidth=0.4, relheight=0.07)
     def refresh_clients_list(self):

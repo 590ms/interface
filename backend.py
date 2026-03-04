@@ -38,7 +38,7 @@ def is_valid_id(item_id):
         int(item_id)
         return True
     except (ValueError, TypeError):
-        messagebox.showerror("Invalid Input", "The Item ID must be a whole number (integer).")
+        messagebox.showerror("Invalid Input", "The ID must be a whole number (integer).")
         return False
 
 def delete_product(target_code):
