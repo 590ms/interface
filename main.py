@@ -6,6 +6,7 @@ class POSSystem:
     def __init__(self, root):
         self.sum = 0.0
         self.root = root
+        self.temp_cart = []
         self.root.title("Nexus POS")
         self.root.attributes("-fullscreen", True)
         
@@ -18,12 +19,14 @@ class POSSystem:
 
         self.main_frame = tk.Frame(root, bg=self.bg_color)
         self.main_frame.pack(expand=True, fill="both")
-        self.root.bind("<Escape>", lambda e: self.root.destroy())
         self.show_pos_screen()
 
     def clear_frame(self):
         for widget in self.main_frame.winfo_children():
             widget.destroy()
+
+
+        
 
     def show_pos_screen(self):
         self.clear_frame()
@@ -77,9 +80,13 @@ class POSSystem:
                                   font=("Segoe UI", 9, "bold"), bd=0, command=self.root.destroy)
         self.exit_btn.place(relx=0.92, rely=0.94, relwidth=0.06, relheight=0.04)
 
-        self.cash_btn = tk.Button(self.main_frame, text="cash", bg=self.success_color, fg=self.text_color,
-                                  font=("Segoe UI", 9, "bold"), bd=0, command=self.root.destroy)
+        self.cash_btn = tk.Button(self.main_frame, text="CASH", bg=self.success_color, fg=self.text_color,
+                                  font=("Segoe UI", 9, "bold"), bd=0, command=self.handle_cash)
         self.cash_btn.place(relx=0.5, rely=0.30, relwidth=0.08, relheight=0.05)
+
+        if self.temp_cart:
+            for item in self.temp_cart:
+                self.product_list.insert(tk.END, item)
 
 
     def create_keypad(self):
@@ -121,17 +128,19 @@ class POSSystem:
         # Search existing stock in memory
         for i in range(0, len(products), 5):
             if item_id == products[i]:
-                # Try to remove 1 from database
-                if quantity_remove(item_id, 1):
-                    name = products[i+1].upper()
-                    price = float(products[i+2])
-                    
-                    self.product_list.insert(tk.END, f"{item_id:<5} {name:<15} 1 {price:>10.2f}€")
-                    self.sum += price
-                    self.totalnum.config(text=f"{self.sum:.2f}€")
+                name = products[i+1].upper()
+                price = float(products[i+2])
+                if int(products[i+4]) <= 0:
+                    messagebox.showerror("Stock Error", f"{name} is out of stock.")
                     self.input_box.delete(0, tk.END)
-                    self.product_list.yview(tk.END)
-                return # Exit once found and processed
+                    return
+                    
+                self.product_list.insert(tk.END, f"{item_id:<5} {name:<15} 1 {price:>10.2f}€")
+                self.sum += price
+                self.totalnum.config(text=f"{self.sum:.2f}€")
+                self.input_box.delete(0, tk.END)
+                self.product_list.yview(tk.END)
+                return 
         
         messagebox.showerror("Error", "Product Not Recognized or Out of Stock")
         self.input_box.delete(0, tk.END)
@@ -148,31 +157,53 @@ class POSSystem:
         old_cart_qty = int(parts[-2])
         price_per_unit = float(parts[-1].replace('€', '')) / old_cart_qty
         
-        # Ask for the absolute new quantity in the cart
         new_cart_qty = simpledialog.askinteger("Edit Quantity", f"Current in cart: {old_cart_qty}\nEnter total quantity:", minvalue=0)
         
         if new_cart_qty is not None:
-            # Calculate the difference to send to database
-            # If new is 5 and old was 2, we need to remove 3 more from DB.
-            # If new is 1 and old was 5, we need to add 4 back to DB (diff will be -4).
-            diff = new_cart_qty - old_cart_qty
+            # CHECK SERVER STOCK BEFORE UPDATING CART
+            try:
+                conn = get_connection()
+                cursor = conn.cursor()
+                cursor.execute("SELECT stock FROM products WHERE code = %s", (item_id,))
+                res = cursor.fetchone()
+                conn.close()
+
+                if res:
+                    server_stock = int(res[0])
+                    if new_cart_qty > server_stock:
+                        messagebox.showerror("Stock Error", 
+                                             f"Cannot add {new_cart_qty} units.\n"
+                                             f"Only {server_stock} available in total stock.")
+                        return 
+            except Exception as e:
+                print(f"Stock check failed: {e}")
             
-            if quantity_remove(item_id, diff):
-                # Update the running total
-                self.sum += (diff * price_per_unit)
-                self.totalnum.config(text=f"{self.sum:.2f}€")
-                
-                # Update Listbox
-                self.product_list.delete(index)
-                if new_cart_qty > 0:
-                    name = parts[1]
-                    new_line_price = new_cart_qty * price_per_unit
-                    self.product_list.insert(index, f"{item_id:<5} {name:<15} {new_cart_qty} {new_line_price:>10.2f}€")
+
+            diff = new_cart_qty - old_cart_qty
+            self.sum += (diff * price_per_unit)
+            self.totalnum.config(text=f"{self.sum:.2f}€")
+            
+            self.product_list.delete(index)
+            if new_cart_qty > 0:
+                name = parts[1]
+                new_line_price = new_cart_qty * price_per_unit
+                self.product_list.insert(index, f"{item_id:<5} {name:<15} {new_cart_qty} {new_line_price:>10.2f}€")
+
+    def handle_cash(self):
+        # Database quantity removal and PDF generation
+        if process_checkout(self.product_list, self.sum):
+            self.product_list.delete(0, tk.END)
+            self.temp_cart = []
+            self.sum = 0.0
+            self.totalnum.config(text="0.00€")
 
     def stock(self):
+        if hasattr(self, 'product_list'):
+            self.temp_cart = list(self.product_list.get(0, tk.END))
+            
         update_memory()
         self.clear_frame()
-        self.sum = 0.0
+        
         tk.Label(self.main_frame, text="INVENTORY", font=("Segoe UI", 20, "bold"), 
                  bg=self.bg_color, fg=self.text_color).pack(pady=30)
         
@@ -243,7 +274,10 @@ class POSSystem:
                   ]).place(relx=0.3, rely=0.8, relwidth=0.4, relheight=0.1)
 
     def clients(self):
-        update_clients_memory()  # Ensure list is fresh
+        if hasattr(self, 'product_list'):
+            self.temp_cart = list(self.product_list.get(0, tk.END))
+            
+        update_clients_memory()
         self.clear_frame()
 
         tk.Label(self.main_frame, text="CLIENT DATABASE", font=("Segoe UI", 20, "bold"),
@@ -256,7 +290,7 @@ class POSSystem:
                                           fg=self.text_color, bd=0, highlightthickness=0)
         self.clients_display.pack(side="left", fill="both", expand=True, padx=20, pady=20)
 
-        # Step 5: Matching your backend fetch (id, name, phone, tin, balance)
+        
         for i in range(0, len(clients), 5):
             self.clients_display.insert(tk.END,
                                         f"ID: {clients[i]:<6} | NAME: {clients[i + 1].upper():<20} | TIN: {clients[i + 3]:<12} | BAL: {clients[i + 4]}€")
@@ -285,7 +319,7 @@ class POSSystem:
         tk.Label(add_window, text="CLIENT REGISTRATION", font=("Segoe UI", 16, "bold"),
                  bg=self.bg_color, fg=self.text_color).pack(pady=20)
 
-        # 1. Define the 7 fields required by your backend add_client function
+        # Define the 7 fields required by backend add_client function
         # Each tuple is (Label Name, Vertical Position)
         client_fields = [
             ("Client ID:", 0.15),
@@ -299,7 +333,7 @@ class POSSystem:
 
         self.client_entries = []  # Using self to keep track of them easily
 
-        # 2. Loop through the list to create ALL fields
+        # Loop through the list to create ALL fields
         for label_text, rely in client_fields:
             tk.Label(add_window, text=label_text, font=("Segoe UI", 11, "bold"),
                      bg=self.bg_color, fg=self.text_color).place(relx=0.05, rely=rely)
@@ -309,7 +343,7 @@ class POSSystem:
             e.place(relx=0.35, rely=rely, relwidth=0.55, relheight=0.05)
             self.client_entries.append(e)
 
-        # 3. Save Function that collects data from all fields
+        # Save Function that collects data from all fields
         def save_action():
             data = [entry.get() for entry in self.client_entries]
             # Unpacks the list into: id, name, phone, email, tin, profession, balance
