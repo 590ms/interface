@@ -62,7 +62,12 @@ class POSMixin:
 
         tk.Button(self.main_frame, text="CASH", bg=self.accent_color, fg=self.text_color,
                   font=("Segoe UI", 9, "bold"), bd=0,
-                  command=self.handle_cash).place(relx=0.5, rely=0.30, relwidth=0.08, relheight=0.05)
+                  command=self.handle_cash).place(relx=0.5, rely=0.325 , relwidth=0.08, relheight=0.05)
+
+        tk.Button(self.main_frame, text="REMOVE PRODUCT", bg=self.accent_color, fg=self.text_color,
+                  font=("Segoe UI", 9, "bold"), bd=0,
+                  command=self.line_removal).place(relx=0.5, rely=0.256, relwidth=0.08, relheight=0.05)
+
 
         tk.Button(self.main_frame, text="LOYALTY", bg="#f39c12", fg=self.text_color,
                   font=("Segoe UI", 9, "bold"), bd=0,
@@ -181,6 +186,25 @@ class POSMixin:
             self.product_list.insert(index, f"{item_id:<5} {name:<15} {new_cart_qty} {new_line_price:>10.2f}€")
 
         self.temp_cart = list(self.product_list.get(0, tk.END))
+
+    def line_removal(self):
+        selection = self.product_list.curselection()
+        if not selection:
+            messagebox.showwarning("Line Removal", "Select an item to remove.")
+            return
+
+        index = selection[0]
+        line = self.product_list.get(index)
+        parts = line.split()
+
+        # Parse price from the line and subtract from total
+        price = float(parts[-1].replace('€', ''))
+        self.sum -= price
+        self.sum = max(self.sum, 0.0)  # guard against floating point drift
+
+        self.product_list.delete(index)
+        self.temp_cart = list(self.product_list.get(0, tk.END))
+        self.totalnum.config(text=f"{self.sum:.2f}€")
 
     # ------------------------------------------------------------------
     # Checkout
