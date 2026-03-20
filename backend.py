@@ -5,6 +5,8 @@ from datetime import datetime
 import tkinter as tk
 import random
 import string
+import os 
+import pdfplumber
 
 # Database Configuration
 db_config = {
@@ -282,8 +284,13 @@ def generate_receipt_pdf(cart_items, total_sum, member_data=None):
         pdf.set_font("Helvetica", 'I', 7)
         pdf.cell(0, 5, "Thank you for shopping at Nexus!", ln=True, align="C")
 
+        folder_name = datetime.now().strftime("%Y-%m-%d")
+
+        if not os.path.exists(folder_name):
+            os.makedirs(folder_name)
         filename = f"receipt_{datetime.now().strftime('%H%M%S')}.pdf"
-        pdf.output(filename)
+        filepath = os.path.join(folder_name, filename)
+        pdf.output(filepath)
         messagebox.showinfo("Success", f"Receipt generated: {filename}")
 
     except Exception as e:
@@ -425,6 +432,85 @@ def update_member_rewards(card_id, total_spent, coupons_used):
     except Exception as e:
         print(f"Update error: {e}")
         return None
+
+
+def parse_receipt_pdf(filepath):
+    """Extract items and total from a receipt PDF. Returns (items, total)."""
+    items = []
+    total = None
+
+    try:
+        with pdfplumber.open(filepath) as pdf:
+            for page in pdf.pages:
+                text = page.extract_text()
+                if not text:
+                    continue
+
+                lines = text.split('\n')
+                in_items = False
+
+                for line in lines:
+                    line = line.strip()
+                    if not line:
+                        continue
+
+                    # Start reading after the table header
+                    if "PRODUCT NAME" in line and "QTY" in line:
+                        in_items = True
+                        continue
+
+                    # Stop at the totals line
+                    if "TOTAL TO PAY" in line:
+                        parts = line.split()
+                        for part in parts:
+                            try:
+                                total = float(part.replace('EUR', '').replace('€', '').strip())
+                            except ValueError:
+                                continue
+                        in_items = False
+                        continue
+
+                    if in_items and line:
+                        # Skip footer lines
+                        if any(x in line for x in ["SCAN", "Thank you", "LOYALTY MEMBER",
+                                                    "Member ID", "Customer:", "Points",
+                                                    "Coupons", "Available"]):
+                            continue
+
+                        # Handle loyalty discount lines
+                        if "LOYALTY" in line or "DISC" in line:
+                            items.append({
+                                'name': 'LOYALTY DISCOUNT',
+                                'qty': '-',
+                                'total': line.split()[-1].replace('€', '').replace('-', '').strip(),
+                                'is_discount': True
+                            })
+                            continue
+
+                        parts = line.split()
+                        if len(parts) >= 3:
+                            try:
+                                price_str = parts[-1].replace('€', '').strip()
+                                qty_str   = parts[-2].strip()
+                                float(price_str)
+                                int(qty_str)
+                                name = " ".join(parts[:-2])
+                                # Strip leading numeric product code
+                                name_parts = name.split()
+                                if name_parts and name_parts[0].isdigit():
+                                    name = " ".join(name_parts[1:])
+                                items.append({
+                                    'name': name.upper(),
+                                    'qty':  qty_str,
+                                    'total': price_str,
+                                    'is_discount': False
+                                })
+                            except (ValueError, IndexError):
+                                continue
+    except Exception as e:
+        print(f"PDF parse error {filepath}: {e}")
+
+    return items, total
 
 
 # Load initial data into memory on import

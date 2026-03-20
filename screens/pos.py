@@ -72,6 +72,10 @@ class POSMixin:
         tk.Button(self.main_frame, text="LOYALTY", bg="#f39c12", fg=self.text_color,
                   font=("Segoe UI", 9, "bold"), bd=0,
                   command=self.loyalty_menu).place(relx=0.1, rely=0.86, relwidth=0.35, relheight=0.05)
+        
+        tk.Button(self.main_frame, text="TRANSACRION HISTORY", bg=self.card_color, fg=self.accent_color,
+          font=("Segoe UI", 9, "bold"), bd=0, cursor="hand2",
+          command=self.transaction_history).place(relx=0.18, rely=0.02, relwidth=0.06, relheight=0.04)
 
         # --- Restore cart ---
         for item in self.temp_cart:
