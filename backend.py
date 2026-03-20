@@ -193,6 +193,15 @@ def delete_client(client_id):
 
 def generate_receipt_pdf(cart_items, total_sum, member_data=None):
     try:
+
+        # Folder + transaction ID 
+        folder_name = datetime.now().strftime("%Y-%m-%d")
+        if not os.path.exists(folder_name):
+            os.makedirs(folder_name)
+        existing = len([f for f in os.listdir(folder_name) if f.endswith(".pdf")])
+        txn_id = f"TXN-{datetime.now().strftime('%Y%m%d')}-{existing + 1:03d}"
+
+
         pdf = FPDF(format=(80, 200))
         pdf.add_page()
 
@@ -206,6 +215,7 @@ def generate_receipt_pdf(cart_items, total_sum, member_data=None):
 
         pdf.set_font("Helvetica", 'I', 7)
         pdf.cell(0, 4, f"Date: {datetime.now().strftime('%d/%m/%Y %H:%M')}", ln=True, align="L")
+        pdf.cell(0, 4, f"Transaction ID: {txn_id}", ln=True, align="L")  # <-- here
         pdf.line(10, pdf.get_y(), 70, pdf.get_y())
         pdf.ln(2)
 
@@ -284,10 +294,6 @@ def generate_receipt_pdf(cart_items, total_sum, member_data=None):
         pdf.set_font("Helvetica", 'I', 7)
         pdf.cell(0, 5, "Thank you for shopping at Nexus!", ln=True, align="C")
 
-        folder_name = datetime.now().strftime("%Y-%m-%d")
-
-        if not os.path.exists(folder_name):
-            os.makedirs(folder_name)
         filename = f"receipt_{datetime.now().strftime('%H%M%S')}.pdf"
         filepath = os.path.join(folder_name, filename)
         pdf.output(filepath)
@@ -303,7 +309,7 @@ def process_checkout(listbox_widget, total_sum, member_data=None):
         return False
 
     try:
-        conn = get_connection()
+        conn = get_connection() 
         cursor = conn.cursor()
 
         for line in items:
@@ -511,6 +517,115 @@ def parse_receipt_pdf(filepath):
         print(f"PDF parse error {filepath}: {e}")
 
     return items, total
+
+def cancel_transaction(filepath, items, total):
+    """
+    Restores stock for all items in the receipt,
+    generates a cancellation PDF, and renames the
+    original receipt to mark it as cancelled.
+    Returns True on success, False on failure.
+    """
+    try:
+        # --- 1. RESTORE STOCK IN DB ---
+        conn = get_connection()
+        cursor = conn.cursor()
+        for item in items:
+            if item.get('is_discount'):
+                continue
+            try:
+                item_id_str = item['name']
+                # item name may still have the code prepended — try to find by name
+                cursor.execute(
+                    "SELECT code FROM products WHERE name = %s", (item['name'],))
+                row = cursor.fetchone()
+                if row:
+                    cursor.execute(
+                        "UPDATE products SET stock = stock + %s WHERE code = %s",
+                        (int(item['qty']), row[0]))
+            except Exception as e:
+                print(f"Stock restore error for {item['name']}: {e}")
+        conn.commit()
+        conn.close()
+        update_memory()
+
+        # --- 2. GENERATE CANCELLATION PDF ---
+        folder  = os.path.dirname(filepath)
+        orig_fn = os.path.basename(filepath)
+        # e.g. receipt_094544.pdf -> cancelled_094544.pdf
+        cancel_fn   = orig_fn.replace("receipt_", "cancelled_")
+        cancel_path = os.path.join(folder, cancel_fn)
+
+        pdf = FPDF(format=(80, 200))
+        pdf.add_page()
+
+        # Header
+        pdf.set_font("Helvetica", 'B', 14)
+        pdf.cell(0, 8, "NEXUS SOLUTIONS", ln=True, align="C")
+        pdf.set_font("Helvetica", '', 8)
+        pdf.cell(0, 4, "123 Tech Avenue, Silicon District", ln=True, align="C")
+        pdf.cell(0, 4, "Thessaloniki, GR - Tel: +30 2310 000 000", ln=True, align="C")
+        pdf.ln(4)
+
+        # Cancellation banner
+        pdf.set_font("Helvetica", 'B', 12)
+        pdf.cell(0, 8, "*** CANCELLATION RECEIPT ***", ln=True, align="C")
+        pdf.set_font("Helvetica", 'I', 7)
+        pdf.cell(0, 4, f"Cancelled: {datetime.now().strftime('%d/%m/%Y %H:%M')}", ln=True, align="L")
+        pdf.cell(0, 4, f"Original:  {orig_fn}", ln=True, align="L")
+        pdf.line(10, pdf.get_y(), 70, pdf.get_y())
+        pdf.ln(2)
+
+        # Table header
+        pdf.set_font("Helvetica", 'B', 8)
+        pdf.cell(35, 5, "PRODUCT NAME", 0)
+        pdf.cell(10, 5, "QTY", 0, 0, 'C')
+        pdf.cell(15, 5, "TOTAL", 0, 1, 'R')
+        pdf.ln(1)
+
+        # Items
+        pdf.set_font("Helvetica", '', 8)
+        for item in items:
+            if item.get('is_discount'):
+                pdf.set_font("Helvetica", 'I', 8)
+                pdf.cell(45, 4, "LOYALTY DISCOUNT", 0)
+                pdf.cell(15, 4, f"-{item['total']}", 0, 1, 'R')
+                pdf.set_font("Helvetica", '', 8)
+                continue
+            start_y = pdf.get_y()
+            pdf.multi_cell(35, 4, item['name'], 0, 'L')
+            end_y = pdf.get_y()
+            pdf.set_xy(45, start_y)
+            pdf.cell(10, 4, str(item['qty']), 0, 0, 'C')
+            pdf.cell(15, 4, f"{float(item['total']):.2f}", 0, 0, 'R')
+            pdf.set_y(end_y)
+            pdf.ln(1)
+
+        # Total
+        pdf.ln(2)
+        pdf.line(10, pdf.get_y(), 70, pdf.get_y())
+        pdf.ln(2)
+        pdf.set_font("Helvetica", 'B', 11)
+        pdf.cell(40, 8, "REFUND TOTAL", 0)
+        pdf.cell(20, 8, f"{total:.2f} EUR", 0, 1, 'R')
+
+        # Footer
+        pdf.ln(4)
+        pdf.set_font("Helvetica", 'I', 7)
+        pdf.cell(0, 5, "Stock has been restored.", ln=True, align="C")
+
+        pdf.output(cancel_path)
+
+        # --- 3. RENAME ORIGINAL to mark as cancelled ---
+        cancelled_orig = os.path.join(folder, "CANCELLED_" + orig_fn)
+        os.rename(filepath, cancelled_orig)
+
+        messagebox.showinfo("Cancelled",
+                            f"Transaction cancelled.\nStock restored.\nCancellation receipt: {cancel_fn}")
+        return True
+
+    except Exception as e:
+        messagebox.showerror("Cancel Error", f"Failed to cancel transaction: {e}")
+        return False
 
 
 # Load initial data into memory on import

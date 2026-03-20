@@ -2,7 +2,11 @@ import tkinter as tk
 from tkinter import messagebox
 import os
 from datetime import date
-from backend import parse_receipt_pdf
+import pdfplumber
+from backend import cancel_transaction, parse_receipt_pdf
+
+
+
 
 class HistoryMixin:
 
@@ -126,52 +130,79 @@ class HistoryMixin:
             return
 
         daily_total = 0.0
-        for idx, fname in enumerate(pdf_files):
+        row_num = 0
+        for fname in pdf_files:
             filepath = os.path.join(folder, fname)
+
+            # detect cancelled originals (renamed to CANCELLED_receipt_...)
+            is_cancelled = fname.startswith("CANCELLED_")
+
+            # skip the cancellation receipt PDFs themselves (cancelled_...)
+            if fname.startswith("cancelled_"):
+                continue
+
+            row_num += 1
             try:
-                time_raw = fname.replace("receipt_", "").replace(".pdf", "")
-                time_str = f"{time_raw[:2]}:{time_raw[2:4]}:{time_raw[4:6]}"
+                # strip CANCELLED_ prefix if present before parsing time
+                clean = fname.replace("CANCELLED_", "").replace("receipt_", "").replace(".pdf", "")
+                time_str = f"{clean[:2]}:{clean[2:4]}:{clean[4:6]}"
             except Exception:
                 time_str = fname
 
             items, total = parse_receipt_pdf(filepath)
-            if total:
+            if total and not is_cancelled:
                 daily_total += total
 
-            self._add_receipt_row(idx + 1, time_str, items, total)
+            self._add_receipt_row(row_num, time_str, filepath, items, total, is_cancelled)
 
         self.daily_total_label.config(text=f"Day Total:  {daily_total:.2f} EUR")
 
     # ──────────────────────────────────────────────────────────────────────
 
-    def _add_receipt_row(self, number, time_str, items, total):
-        card = tk.Frame(self.hist_scroll_frame, bg=self.card_color,
-                        highlightbackground="#333333", highlightthickness=1)
+    def _add_receipt_row(self, number, time_str, filepath, items, total, is_cancelled=False):
+        # Cancelled rows get a dark red tint, normal rows use card color
+        card_bg = "#2a1010" if is_cancelled else self.card_color
+        card = tk.Frame(self.hist_scroll_frame, bg=card_bg,
+                        highlightbackground="#8b0000" if is_cancelled else "#333333",
+                        highlightthickness=1)
         card.pack(fill="x", pady=5, padx=5)
 
         # ── Header row ────────────────────────────────────────────────────
-        header = tk.Frame(card, bg=self.card_color)
+        header = tk.Frame(card, bg=card_bg)
         header.pack(fill="x", padx=15, pady=10)
 
-        # Arrow label that rotates ▶ / ▼
         arrow_var = tk.StringVar(value="▶")
         arrow_lbl = tk.Label(header, textvariable=arrow_var,
-                             font=("Segoe UI", 10), bg=self.card_color,
+                             font=("Segoe UI", 10), bg=card_bg,
                              fg=self.accent_color, cursor="hand2")
         arrow_lbl.pack(side="left", padx=(0, 6))
 
-        tk.Label(header, text="🧾", font=("Segoe UI", 16),
-                 bg=self.card_color).pack(side="left", padx=(0, 8))
+        icon = "🚫" if is_cancelled else "🧾"
+        tk.Label(header, text=icon, font=("Segoe UI", 16),
+                 bg=card_bg).pack(side="left", padx=(0, 8))
 
+        label_color = "#ff6b6b" if is_cancelled else self.text_color
+        suffix = "   [CANCELLED]" if is_cancelled else ""
         tk.Label(header,
-                 text=f"TRANSACTION #{number:02d}   —   {time_str}",
+                 text=f"TRANSACTION #{number:02d}   —   {time_str}{suffix}",
                  font=("Segoe UI", 11, "bold"),
-                 bg=self.card_color, fg=self.text_color).pack(side="left")
+                 bg=card_bg, fg=label_color).pack(side="left")
 
         if total is not None:
+            amount_color = "#ff6b6b" if is_cancelled else self.success_color
             tk.Label(header, text=f"{total:.2f} EUR",
                      font=("Segoe UI", 11, "bold"),
-                     bg=self.card_color, fg=self.success_color).pack(side="left", padx=20)
+                     bg=card_bg, fg=amount_color).pack(side="left", padx=20)
+
+        # Cancel button — only shown on non-cancelled receipts
+        if not is_cancelled:
+            tk.Button(header, text="✕  CANCEL",
+                      bg=self.danger_color, fg=self.text_color,
+                      font=("Segoe UI", 9, "bold"), bd=0, padx=10, pady=3,
+                      cursor="hand2",
+                      command=lambda fp=filepath, i=items, t=total, c=card, h=header:
+                          self._confirm_cancel(fp, i, t, c, h)
+                      ).pack(side="right", padx=(6, 0))
 
         preview_btn = tk.Button(header, text="👁  PREVIEW",
                                 bg=self.accent_color, fg=self.text_color,
@@ -265,3 +296,34 @@ class HistoryMixin:
         preview_btn.config(command=toggle)
         arrow_lbl.bind("<Button-1>", toggle)
         header.bind("<Button-1>", toggle)
+
+    # ──────────────────────────────────────────────────────────────────────
+
+    def _confirm_cancel(self, filepath, items, total, card, header):
+        confirmed = messagebox.askyesno(
+            "Cancel Transaction",
+            f"Are you sure you want to cancel this transaction?\n\n"
+            f"Total: {total:.2f} EUR\n"
+        )
+        if not confirmed:
+            return
+
+        success = cancel_transaction(filepath, items, total)
+        if success:
+            # Visually mark the card as cancelled immediately
+            card.config(bg="#2a1010", highlightbackground="#8b0000")
+            for widget in header.winfo_children():
+                try:
+                    widget.config(bg="#2a1010")
+                except Exception:
+                    pass
+                # swap icon and label text
+                if isinstance(widget, tk.Label):
+                    if widget.cget("text") == "🧾":
+                        widget.config(text="🚫")
+                    current = widget.cget("text")
+                    if "TRANSACTION" in current and "[CANCELLED]" not in current:
+                        widget.config(text=current + "   [CANCELLED]", fg="#ff6b6b")
+                # remove the cancel button
+                if isinstance(widget, tk.Button) and "CANCEL" in widget.cget("text"):
+                    widget.destroy()
