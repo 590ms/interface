@@ -1,9 +1,12 @@
 import tkinter as tk
 from tkinter import messagebox, simpledialog
 from backend import products, check_stock, process_checkout, update_member_rewards
+from click import command
 
 
 class POSMixin:
+
+
 
     def show_pos_screen(self):
         self.clear_frame()
@@ -62,7 +65,7 @@ class POSMixin:
 
         tk.Button(self.main_frame, text="CASH", bg=self.accent_color, fg=self.text_color,
                   font=("Segoe UI", 9, "bold"), bd=0,
-                  command=self.handle_cash).place(relx=0.5, rely=0.325 , relwidth=0.08, relheight=0.05)
+                  command=self.change_window).place(relx=0.5, rely=0.325 , relwidth=0.08, relheight=0.05)
 
         tk.Button(self.main_frame, text="REMOVE PRODUCT", bg=self.accent_color, fg=self.text_color,
                   font=("Segoe UI", 9, "bold"), bd=0,
@@ -144,6 +147,7 @@ class POSMixin:
                 self.totalnum.config(text=f"{self.sum:.2f}€")
                 self.input_box.delete(0, tk.END)
                 self.product_list.yview(tk.END)
+                self.button_var = tk.StringVar(value=str(self.sum))
                 return
 
         messagebox.showerror("Error", "Product Not Recognized or Out of Stock")
@@ -234,3 +238,141 @@ class POSMixin:
             self.sum          = 0.0
             self.active_member = None
             self.totalnum.config(text="0.00€")
+
+
+
+
+
+    def change_window(self):
+        if not self.product_list.get(0, tk.END):
+            return
+        add_change_window = tk.Toplevel(self.root)
+        add_change_window .title("change window")
+        add_change_window .geometry("600x650")
+        add_change_window .update_idletasks()
+        x = (add_change_window .winfo_screenwidth() // 2) - (700 // 2)
+        y = (add_change_window .winfo_screenheight() // 2) - (500 // 2)
+        add_change_window .geometry(f"700x500+{x}+{y}")
+        add_change_window.configure(bg=self.bg_color)
+
+        tk.Button(add_change_window , textvariable=self.button_var, bg=self.card_color,
+                  fg=self.text_color, font=("Segoe UI", 11, "bold"), bd=0, cursor="hand2",
+                  command=lambda:[self.handle_cash(),add_change_window.destroy()],).place(relx=0.3, rely=0.05, relwidth=0.4, relheight=0.07)
+        #input box
+        display_var = tk.StringVar(value="0")
+        self.input = tk.Entry(add_change_window , font=("Segoe UI", 22),
+                                  bg=self.card_color, fg=self.text_color,
+                                  bd=0, insertbackground="white", justify="center")
+        self.input.place(relx=0.1, rely=0.14, relwidth=0.8, relheight=0.07)
+        self.input.focus_set()
+
+        def changes():
+            amount = self.input.get()
+            change=float(amount)-self.sum
+
+
+            popup = tk.Toplevel(add_change_window)
+            popup.title("Change")
+            popup.resizable(False, False)
+            popup.configure(bg=self.bg_color)
+
+            # Center the popup
+            popup.update_idletasks()
+            x = (popup.winfo_screenwidth() // 2) - (300 // 2)
+            y = (popup.winfo_screenheight() // 2) - (200 // 2)
+            popup.geometry(f"300x200+{x}+{y}")
+
+            tk.Label(popup, text="change Amount:",
+                     font=("Segoe UI", 11), bg=self.bg_color,
+                     fg=self.text_color).place(relx=0.1, rely=0.15)
+
+            tk.Label(popup, text=f"{float(change):.2f}€",
+                     font=("Segoe UI", 24, "bold"), bg=self.bg_color,
+                     fg=self.accent_color).place(relx=0.1, rely=0.35)
+
+            tk.Button(popup, text="OK",
+                      bg=self.accent_color, fg=self.text_color,
+                      font=("Segoe UI", 11, "bold"), bd=0, cursor="hand2",
+                      command=lambda: [self.handle_cash(),popup.destroy(),add_change_window.destroy()]
+                      ).place(relx=0.25, rely=0.7,relwidth=0.5, relheight=0.15)
+
+
+
+
+         #press keybad
+        def press(val):
+            current = display_var.get()
+            if val == "C":
+                self.input.delete(0, tk.END)
+            elif val == "⌫":
+                self.input.delete(self.input.index("end") - 1)
+            elif val == ".":
+                if "." not in current:
+                    display_var.set(current + ".")
+            else:
+                self.input.insert(tk.END, val)
+                # display_var.set(val if current == "0" else current + val)
+
+        keypad_frame = tk.Frame(add_change_window, bg=self.bg_color)
+        keypad_frame.place(relx=0.05, rely=0.25, relwidth=0.9, relheight=0.6)
+
+        buttons = [
+            ["7", "8", "9"],
+            ["4", "5", "6"],
+            ["1", "2", "3"],
+            ["C", "0", "⌫"],
+        ]
+
+        for row_idx, row in enumerate(buttons):
+            for col_idx, label in enumerate(row):
+                if label == "C":
+                    bg = "#e74c3c"
+                elif label == "⌫":
+                    bg = "#e67e22"
+                else:
+                    bg = self.card_color
+
+                tk.Button(keypad_frame, text=label,
+                          font=("Segoe UI", 16, "bold"),
+                          bg=bg, fg=self.text_color,
+                          bd=0, cursor="hand2", relief="groove",
+                          command=lambda v=label: press(v)
+                          ).grid(row=row_idx, column=col_idx,
+                                 padx=5, pady=5, sticky="nsew")
+
+        # Make grid cells expand evenly
+        for i in range(3):
+            keypad_frame.columnconfigure(i, weight=1)
+        for i in range(4):
+            keypad_frame.rowconfigure(i, weight=1)
+
+
+
+        # --- ENTER button ---
+        add_change_window.bind("<Return>", lambda event: changes())
+        tk.Button(add_change_window, text="ENTER",
+                  bg=self.accent_color, fg=self.text_color,
+                  font=("Segoe UI", 11, "bold"), bd=0, cursor="hand2",
+                  command=changes).place(relx=0.05, rely=0.88,
+                                                  relwidth=0.45, relheight=0.08)
+        tk.Button(add_change_window, text="CLOSE",
+                  bg=self.danger_color, fg=self.text_color,
+                  font=("Segoe UI", 11, "bold"), bd=0, cursor="hand2",
+                  command=add_change_window.destroy).place(relx=0.55, rely=0.88,
+                                                    relwidth=0.4, relheight=0.08)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
