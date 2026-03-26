@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import messagebox, simpledialog
-from backend import products, check_stock, process_checkout, update_member_rewards
+from backend import products, check_stock, process_checkout, update_member_rewards, find_card_client, find_walkin_client, deduct_balance
 from click import command
 
 
@@ -13,13 +13,38 @@ class POSMixin:
         self.root.bind("<Return>", lambda e: self.add_item())
 
         # --- Navigation ---
-        tk.Button(self.main_frame, text="STOCK", bg=self.card_color, fg=self.accent_color,
-                  font=("Segoe UI", 9, "bold"), bd=0, cursor="hand2",
-                  command=self.stock).place(relx=0.02, rely=0.02, relwidth=0.06, relheight=0.04)
+        if self.user_role == "admin":
+            tk.Button(self.main_frame, text="STOCK", bg=self.card_color, fg=self.accent_color,
+                      font=("Segoe UI", 9, "bold"), bd=0, cursor="hand2",
+                      command=self.stock).place(relx=0.02, rely=0.02, relwidth=0.06, relheight=0.04)
 
+            tk.Button(self.main_frame, text="TRANSACRION HISTORY", bg=self.card_color, fg=self.accent_color,
+                      font=("Segoe UI", 9, "bold"), bd=0, cursor="hand2",
+                      command=self.transaction_history).place(relx=0.18, rely=0.02, relwidth=0.06, relheight=0.04)
+
+        admin_btn_text = "EXIT ADMIN" if self.user_role == "admin" else "ADMIN LOGIN"
+        admin_btn_color = self.danger_color if self.user_role == "admin" else "#333333"
+        self.admin_toggle = tk.Button(
+            self.main_frame,
+            text=admin_btn_text,
+            command=self.toggle_admin_mode,
+            bg=admin_btn_color,
+            fg="white",
+            font=("Arial", 10, "bold"),
+            relief="flat",
+            padx=10
+        )
+        self.admin_toggle.place(relx=0.01, rely=0.98, anchor="sw")
         tk.Button(self.main_frame, text="CLIENTS", bg=self.card_color, fg=self.accent_color,
                   font=("Segoe UI", 9, "bold"), bd=0, cursor="hand2",
-                  command=self.clients).place(relx=0.1, rely=0.02, relwidth=0.06, relheight=0.04)
+                  command=self.clients_screen).place(relx=0.1, rely=0.02, relwidth=0.06, relheight=0.04)
+        mode_btn_text = "WHOLESALE" if self.user_mode == "retail" else "RETAIL"
+        mode_btn_color = self.accent_color if self.user_mode == "retail" else "#f39c12"
+        tk.Button(self.main_frame, text=mode_btn_text,
+                  command=self.toggle_mode,
+                  bg=mode_btn_color, fg="white",
+                  font=("Arial", 10, "bold"), relief="flat", padx=10
+                  ).place(relx=0.12, rely=0.98, anchor="sw")
 
         # --- Order Panel (right side) ---
         order_container = tk.Frame(self.main_frame, bg=self.card_color, bd=0)
@@ -70,15 +95,20 @@ class POSMixin:
         tk.Button(self.main_frame, text="REMOVE PRODUCT", bg=self.accent_color, fg=self.text_color,
                   font=("Segoe UI", 9, "bold"), bd=0,
                   command=self.line_removal).place(relx=0.5, rely=0.256, relwidth=0.08, relheight=0.05)
+        if self.user_mode == "wholesale" :
+            tk.Button(self.main_frame, text="Nexus Card", bg=self.accent_color, fg=self.text_color,
+                      font=("Segoe UI", 9, "bold"), bd=0,
+                      command=self.attach_clientcard).place(relx=0.5, rely=0.394, relwidth=0.08, relheight=0.05)
+            tk.Button(self.main_frame, text="Invoice", bg=self.accent_color, fg=self.text_color,
+                      font=("Segoe UI", 9, "bold"), bd=0,
+                      command=self.attach_client).place(relx=0.5, rely=0.463, relwidth=0.08, relheight=0.05)
 
 
         tk.Button(self.main_frame, text="LOYALTY", bg="#f39c12", fg=self.text_color,
                   font=("Segoe UI", 9, "bold"), bd=0,
                   command=self.loyalty_menu).place(relx=0.1, rely=0.86, relwidth=0.35, relheight=0.05)
         
-        tk.Button(self.main_frame, text="TRANSACRION HISTORY", bg=self.card_color, fg=self.accent_color,
-          font=("Segoe UI", 9, "bold"), bd=0, cursor="hand2",
-          command=self.transaction_history).place(relx=0.18, rely=0.02, relwidth=0.06, relheight=0.04)
+
 
         # --- Restore cart ---
         for item in self.temp_cart:
@@ -134,7 +164,7 @@ class POSMixin:
         for i in range(0, len(products), 5):
             if item_id == products[i]:
                 name  = products[i + 1].upper()
-                price = float(products[i + 2])
+                price = float(products[i + 2]) if self.user_mode == "retail" else float(products[i + 3])
 
                 if int(products[i + 4]) <= 0:
                     messagebox.showerror("Stock Error", f"{name} is out of stock.")
@@ -232,22 +262,141 @@ class POSMixin:
             if final_member_data:
                 final_member_data['name'] = member_to_update['name']
 
-        if process_checkout(self.product_list, current_sale_sum, final_member_data):
+        if process_checkout(self.product_list, current_sale_sum, final_member_data,
+                            mode=self.user_mode,
+                            client_data=self.active_client or self.active_walkin):
             self.product_list.delete(0, tk.END)
             self.temp_cart    = []
             self.sum          = 0.0
             self.active_member = None
+            self.active_walkin = None
             self.totalnum.config(text="0.00€")
 
+    def nexuscard_checkout(self, client_data):
+        if client_data['balance'] < self.sum:
+            messagebox.showerror("Insufficient Funds",
+                                 f"Card Balance: {client_data['balance']:.2f}€\nTotal: {self.sum:.2f}€")
+            return
 
+        cart_items = list(self.product_list.get(0, "end"))
+        if not cart_items:
+            messagebox.showerror("Cart Empty", "Please add something to the cart first.")
+            return
+
+        deduct_balance(client_data['id'], self.sum)
+
+        final_member_data = None
+        if self.active_member:
+            used = self.active_member.get('used', 0)
+            final_member_data = update_member_rewards(self.active_member['id'], self.sum, used)
+            if final_member_data:
+                final_member_data['name'] = self.active_member['name']
+
+        client_data['balance_after'] = client_data['balance'] - self.sum
+
+        if process_checkout(self.product_list, self.sum, final_member_data,
+                            mode="wholesale",  # Usually cards trigger invoices
+                            client_data=client_data):
+            self.product_list.delete(0, "end")
+            self.temp_cart = []
+            self.sum = 0.0
+            self.active_member = None
+            self.active_client = None  # Clear attached client
+            self.totalnum.config(text="0.00€")
+            messagebox.showinfo("Success", "Nexus Card Payment Processed!")
+
+    def attach_client(self):
+        addc_window = tk.Toplevel(self.root)
+        addc_window.title("Attach Client")
+        addc_window.geometry("600x300")
+        addc_window.configure(bg=self.bg_color)
+
+        tk.Label(addc_window, text="ATTACH WALK-IN CLIENT", font=("Segoe UI", 16, "bold"),
+                 bg=self.bg_color, fg=self.text_color).pack(pady=20)
+
+        tk.Label(addc_window, text="Enter TIN:", font=("Segoe UI", 10, "bold"),
+                 bg=self.bg_color, fg=self.accent_color).pack()
+
+        ide = tk.Entry(addc_window, font=("Segoe UI", 14), bg=self.card_color,
+                       fg=self.text_color, bd=0, insertbackground="white", justify="center")
+        ide.pack(padx=60, pady=10, fill="x")
+        ide.focus_set()
+
+        def findc():
+            client = ide.get().strip()
+            search = find_walkin_client(client)
+            if search:
+                self.active_walkin = {
+                    'id': search[0],
+                    'name': search[1],
+                    'email': search[2],
+                    'phone': search[3],
+                    'tin': search[4],
+                    'job_title': search[5],
+                    'is_card_client': False
+                }
+                messagebox.showinfo("Client Attached", f"Client: {search[1]}\nTIN: {search[4]}")
+                addc_window.destroy()
+            else:
+                messagebox.showerror("Not Found", "No client found with that TIN.")
+
+        tk.Button(addc_window, text="ATTACH CLIENT", bg=self.accent_color, fg=self.text_color,
+                  font=("Segoe UI", 10, "bold"), bd=0,
+                  command=findc).pack(pady=10, padx=60, fill="x", ipady=8)
+        addc_window.bind("<Return>", lambda e: findc())
+
+    def attach_clientcard(self):
+        addc_window = tk.Toplevel(self.root)
+        addc_window.title("Nexus Card Payment")
+        addc_window.geometry("500x350")
+        addc_window.configure(bg=self.bg_color)
+
+        tk.Label(addc_window, text="SCAN NEXUS CARD", font=("Segoe UI", 16, "bold"),
+                     bg=self.bg_color, fg=self.accent_color).pack(pady=20)
+
+        ide = tk.Entry(addc_window, font=("Segoe UI", 16), bg=self.card_color,
+                           fg=self.text_color, bd=0, insertbackground="white", justify="center")
+        ide.pack(padx=60, pady=10, fill="x")
+        ide.focus_set()
+
+        def findcard():
+            card_id = ide.get().strip()
+            search = find_card_client(card_id)
+
+            if search:
+                client_dict = {
+                    'id': search[0],
+                    'name': search[1],
+                    'phone': search[2],
+                    'tin': search[3],
+                    'balance': float(search[4]),
+                    'is_card_client': True
+                }
+                addc_window.destroy()
+                self.nexuscard_checkout(client_dict)
+            else:
+                messagebox.showerror("Not Found", "Invalid Card ID or Card Inactive.")
+
+        tk.Button(addc_window, text="PAY WITH CARD", bg=self.success_color, fg=self.text_color,
+                    font=("Segoe UI", 12, "bold"), bd=0, cursor="hand2",
+                    command=findcard).pack(pady=20, padx=60, fill="x", ipady=10)
+
+        addc_window.bind("<Return>", lambda e: findcard())
 
 
 
     def change_window(self):
+
         if not self.product_list.get(0, tk.END):
+            messagebox.showwarning("Transaction", "Cart is empty please add something...")
             return
+        if self.user_mode == "wholesale":
+            if self.active_client is None and self.active_walkin is None:
+                messagebox.showwarning("Transaction", "No client attached please attach client...")
+                return
+
         add_change_window = tk.Toplevel(self.root)
-        add_change_window .title("change window")
+        add_change_window .title("Change Window")
         add_change_window .geometry("600x650")
         add_change_window .update_idletasks()
         x = (add_change_window .winfo_screenwidth() // 2) - (700 // 2)
@@ -282,7 +431,7 @@ class POSMixin:
             y = (popup.winfo_screenheight() // 2) - (200 // 2)
             popup.geometry(f"300x200+{x}+{y}")
 
-            tk.Label(popup, text="change Amount:",
+            tk.Label(popup, text="Change Amount:",
                      font=("Segoe UI", 11), bg=self.bg_color,
                      fg=self.text_color).place(relx=0.1, rely=0.15)
 

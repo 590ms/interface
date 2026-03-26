@@ -5,8 +5,9 @@ from datetime import datetime
 import tkinter as tk
 import random
 import string
-import os 
+import os
 import pdfplumber
+
 
 # Database Configuration
 db_config = {
@@ -18,6 +19,8 @@ db_config = {
 
 products = []
 clients = []
+nclients = []
+
 
 
 def get_connection():
@@ -191,10 +194,113 @@ def delete_client(client_id):
         messagebox.showerror("Error", f"Could not delete client: {e}")
 
 
+def update_nclients_memory():
+    global nclients
+    nclients.clear()
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, name, email, phone, tin, job_title FROM nclients")
+        rows = cursor.fetchall()
+        for row in rows:
+            nclients.extend([str(row[0]), str(row[1]), str(row[2]), str(row[3]), str(row[4]), str(row[5])])
+        conn.close()
+    except Exception as e:
+        print(f"Database Error (NClients): {e}")
+
+
+def add_nclient(client_id, name, email, phone, tin, job_title):
+    if not is_valid_id(client_id):
+        return
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        sql = "INSERT INTO nclients (id, name, email, phone, tin, job_title) VALUES (%s, %s, %s, %s, %s, %s)"
+        cursor.execute(sql, (client_id, name, email, phone, tin, job_title))
+        conn.commit()
+        conn.close()
+        update_nclients_memory()
+        messagebox.showinfo("Success", "Client added successfully!")
+    except Exception as e:
+        messagebox.showerror("Error", f"Failed to add client: {e}")
+
+
+def delete_nclient(client_id):
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM nclients WHERE id = %s", (client_id,))
+        conn.commit()
+        conn.close()
+        update_nclients_memory()
+    except Exception as e:
+        messagebox.showerror("Error", f"Could not delete client: {e}")
+
+def find_card_client(card_id):
+    """Fetch card holder by ID. Returns (client_id, name, phone, tin, balance) or None."""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT client_id, name, phone, tin, balance FROM clients WHERE client_id = %s", (card_id,))
+        res = cursor.fetchone()
+        conn.close()
+        return res
+    except Exception as e:
+        print(f"Card client lookup error: {e}")
+        return None
+
+
+def find_walkin_client(tin):
+    """Fetch walk-in client by TIN. Returns (id, name, email, phone, tin, job_title) or None."""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, name, email, phone, tin, job_title FROM nclients WHERE tin = %s", (tin,))
+        res = cursor.fetchone()
+        conn.close()
+        return res
+    except Exception as e:
+        print(f"Walk-in client lookup error: {e}")
+        return None
+
+
+def deduct_balance(card_id, amount):
+    """Deducts amount from card client balance. Returns new balance or None on failure."""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT balance FROM clients WHERE client_id = %s", (card_id,))
+        res = cursor.fetchone()
+        if not res:
+            messagebox.showerror("Error", "Card client not found.")
+            conn.close()
+            return None
+
+        current_balance = float(res[0])
+        if current_balance < float(amount):
+            messagebox.showerror("Insufficient Balance",
+                                 f"Card balance: {current_balance:.2f}€\n"
+                                 f"Order total:  {float(amount):.2f}€\n\n"
+                                 "Use another payment method.")
+            conn.close()
+            return None
+
+        new_balance = current_balance - float(amount)
+        cursor.execute("UPDATE clients SET balance = %s WHERE client_id = %s", (new_balance, card_id))
+        conn.commit()
+        conn.close()
+        update_clients_memory()
+        return new_balance
+
+    except Exception as e:
+        print(f"Balance deduction error: {e}")
+        return None
+
+
 def generate_receipt_pdf(cart_items, total_sum, member_data=None):
     try:
 
-        # Folder + transaction ID 
+        # Folder + transaction ID
         folder_name = datetime.now().strftime("%Y-%m-%d")
         if not os.path.exists(folder_name):
             os.makedirs(folder_name)
@@ -303,13 +409,13 @@ def generate_receipt_pdf(cart_items, total_sum, member_data=None):
         messagebox.showerror("PDF Error", f"Error generating receipt: {e}")
 
 
-def process_checkout(listbox_widget, total_sum, member_data=None):
+def process_checkout(listbox_widget, total_sum, member_data=None, mode="retail", client_data=None):
     items = listbox_widget.get(0, tk.END)
     if not items:
         return False
 
     try:
-        conn = get_connection() 
+        conn = get_connection()
         cursor = conn.cursor()
 
         for line in items:
@@ -340,7 +446,11 @@ def process_checkout(listbox_widget, total_sum, member_data=None):
             quantity = parts[-2]
             quantity_remove(item_id, quantity)
 
-        generate_receipt_pdf(items, total_sum, member_data)
+        if mode == "wholesale" and client_data:
+            generate_invoice_pdf(items, total_sum, client_data, member_data,
+                                 is_card_client=client_data.get('is_card_client', False))
+        else:
+            generate_receipt_pdf(items, total_sum, member_data)
         update_memory()
         return True
 
@@ -628,6 +738,140 @@ def cancel_transaction(filepath, items, total):
         return False
 
 
+def generate_invoice_pdf(cart_items, total_sum, client_data, member_data=None, is_card_client=False):
+    try:
+        folder_name = datetime.now().strftime("%Y-%m-%d")
+        if not os.path.exists(folder_name):
+            os.makedirs(folder_name)
+
+        existing = len([f for f in os.listdir(folder_name) if f.endswith(".pdf")])
+        inv_id = f"INV-{datetime.now().strftime('%Y%m%d')}-{existing + 1:03d}"
+
+        pdf = FPDF(format='A4')
+        pdf.add_page()
+        pdf.set_margins(15, 15, 15)
+
+        def clean_text(text):
+            return str(text).replace('€', 'EUR').encode('latin-1', 'replace').decode('latin-1')
+
+        # --- HEADER ---
+        pdf.set_font("Helvetica", 'B', 20)
+        pdf.cell(0, 10, clean_text("NEXUS SOLUTIONS"), ln=True, align="C")
+        pdf.set_font("Helvetica", '', 9)
+        pdf.cell(0, 4, clean_text("123 Tech Avenue, Silicon District"), ln=True, align="C")
+        pdf.cell(0, 4, clean_text("Thessaloniki, GR - Tel: +30 2310 000 000"), ln=True, align="C")
+        pdf.ln(4)
+        pdf.line(15, pdf.get_y(), 195, pdf.get_y())
+        pdf.ln(4)
+
+        # --- INVOICE META ---
+        pdf.set_font("Helvetica", 'B', 14)
+        pdf.cell(0, 8, clean_text("WHOLESALE INVOICE"), ln=True, align="C")
+        pdf.ln(2)
+        pdf.set_font("Helvetica", '', 9)
+        pdf.cell(90, 5, clean_text(f"Invoice No: {inv_id}"), 0)
+        pdf.cell(90, 5, clean_text(f"Date: {datetime.now().strftime('%d/%m/%Y %H:%M')}"), 0, 1, 'R')
+        pdf.ln(4)
+
+        # --- CLIENT INFO BOX ---
+        pdf.set_fill_color(240, 240, 240)
+        pdf.set_font("Helvetica", 'B', 9)
+        pdf.cell(0, 6, "  BILL TO", 0, ln=True, fill=True)
+        pdf.set_font("Helvetica", '', 9)
+
+        c_name = clean_text(client_data.get('name', '')).upper()
+        c_tin = clean_text(client_data.get('tin', ''))
+        c_phone = clean_text(client_data.get('phone', ''))
+        c_id = clean_text(client_data.get('id', ''))
+
+        pdf.cell(0, 5, f"  Name:    {c_name}", ln=True)
+        pdf.cell(0, 5, f"  TIN:     {c_tin}", ln=True)
+        pdf.cell(0, 5, f"  Phone:   {c_phone}", ln=True)
+        if is_card_client:
+            pdf.cell(0,5, f"Payed by NEXUS CARD (NEXUS CARD ID: {c_id})", ln=True)
+        pdf.ln(4)
+
+        # --- TABLE HEADER ---
+        pdf.set_font("Helvetica", 'B', 9)
+        pdf.cell(20, 6, "CODE", 0, 0, 'L')
+        pdf.cell(90, 6, "DESCRIPTION", 0, 0, 'L')
+        pdf.cell(20, 6, "QTY", 0, 0, 'C')
+        pdf.cell(25, 6, "UNIT", 0, 0, 'R')
+        pdf.cell(25, 6, "TOTAL", 0, 1, 'R')
+        pdf.line(15, pdf.get_y(), 195, pdf.get_y())
+        pdf.ln(1)
+
+
+        # --- ITEMS LOOP ---
+        pdf.set_font("Helvetica", '', 9)
+        for line in cart_items:
+            try:
+                safe_line = clean_text(line).strip()
+                if not safe_line or "TOTAL" in safe_line.upper():
+                    continue
+
+                parts = safe_line.split()
+                if len(parts) < 3:
+                    continue
+
+                if "LOYALTY" in safe_line.upper():
+                    pdf.set_font("Helvetica", 'I', 9)
+                    # Use the very last part as the discount value
+                    discount_val = abs(float(parts[-1].replace('EUR', '')))
+                    pdf.cell(110, 5, "LOYALTY DISCOUNT", 0)
+                    pdf.cell(20, 5, "", 0, 0, 'C')
+                    pdf.cell(25, 5, "", 0, 0, 'R')
+                    pdf.cell(25, 5, f"-{discount_val:.2f}", 0, 1, 'R')
+                    pdf.set_font("Helvetica", '', 9)
+                    continue
+
+                item_code = parts[0]
+
+                raw_total = parts[-1].replace('EUR', '').strip()
+                raw_qty = parts[-2]
+
+                item_name = " ".join(parts[1:-2]).upper()
+
+                try:
+                    p_total = float(raw_total)
+                    p_qty = int(raw_qty)
+                except ValueError:
+                    p_total = float(raw_total)
+                    p_qty = 1
+                    item_name = " ".join(parts[1:-1]).upper()
+
+                unit_price = p_total / p_qty if p_qty > 0 else 0
+
+                # 4. Draw to PDF
+                pdf.cell(20, 5, item_code, 0, 0, 'L')
+                pdf.cell(90, 5, item_name[:40], 0, 0, 'L')  # Name truncated to fit
+                pdf.cell(20, 5, str(p_qty), 0, 0, 'C')
+                pdf.cell(25, 5, f"{unit_price:.2f}", 0, 0, 'R')
+                pdf.cell(25, 5, f"{p_total:.2f}", 0, 1, 'R')
+
+            except Exception as e:
+                print(f"DEBUG: Skipping line: '{line}' Error: {e}")
+                continue
+
+        # --- TOTALS ---
+        pdf.ln(2)
+        pdf.line(15, pdf.get_y(), 195, pdf.get_y())
+        pdf.ln(2)
+        pdf.set_font("Helvetica", 'B', 12)
+        pdf.cell(155, 8, "GRAND TOTAL", 0, 0, 'R')
+        pdf.cell(25, 8, f"{float(total_sum):.2f} EUR", 0, 1, 'R')
+
+        time_str = datetime.now().strftime('%H%M%S')
+        filename = f"invoice_{time_str}.pdf"
+        filepath = os.path.join(folder_name, filename)
+
+        pdf.output(filepath)
+        messagebox.showinfo("Success", f"Invoice saved to:\n{filepath}")
+
+    except Exception as e:
+        messagebox.showerror("Invoice Error", f"Critical failure: {e}")
+
 # Load initial data into memory on import
 update_memory()
 update_clients_memory()
+update_nclients_memory()
