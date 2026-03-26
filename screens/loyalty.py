@@ -199,7 +199,7 @@ class LoyaltyMixin:
         reg_win.title("New Loyalty Member")
         reg_win.geometry("500x400")
         reg_win.configure(bg=self.bg_color)
-        phone_e.bind("<Return>", lambda e: save())
+        reg_win.bind("<Return>", lambda e: save())
 
 
         tk.Label(reg_win, text="MEMBER REGISTRATION", font=("Segoe UI", 16, "bold"),

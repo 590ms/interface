@@ -7,6 +7,7 @@ import random
 import string
 import os
 import pdfplumber
+import re
 
 
 # Database Configuration
@@ -551,78 +552,98 @@ def update_member_rewards(card_id, total_spent, coupons_used):
 
 
 def parse_receipt_pdf(filepath):
-    """Extract items and total from a receipt PDF. Returns (items, total)."""
+    """Extract items and total from both Receipts and Invoices."""
     items = []
     total = None
 
     try:
         with pdfplumber.open(filepath) as pdf:
+            text = ""
             for page in pdf.pages:
-                text = page.extract_text()
-                if not text:
+                page_text = page.extract_text()
+                if page_text:
+                    text += page_text + "\n"
+                    print("RAW TEXT:")
+                    print(text)
+                    print("---")
+
+            if not text:
+                return items, total
+
+            lines = text.split('\n')
+            in_items = False
+
+            # Identify if it's an invoice or receipt
+            is_invoice = "WHOLESALE" in text.upper()
+
+            for line in lines:
+                line = line.strip()
+                if not line: continue
+
+                # --- START TRIGGER ---
+                # Receipts use "PRODUCT NAME", Invoices use "DESCRIPTION"
+                if any(x in line.upper() for x in ["PRODUCT NAME", "DESCRIPTION", "CODE"]):
+                    in_items = True
                     continue
 
-                lines = text.split('\n')
-                in_items = False
+                # --- STOP TRIGGER & TOTAL ---
+                if any(x in line.upper() for x in ["TOTAL TO PAY", "GRAND TOTAL", "TOTAL PAID"]):
+                    numbers = re.findall(r'\d+\.?\d*', line)
+                    if numbers:
+                        total = float(numbers[-1])
+                    in_items = False
+                    continue
 
-                for line in lines:
-                    line = line.strip()
-                    if not line:
+                # --- ITEM PARSING ---
+                if in_items:
+                    # Skip noise
+                    if any(x in line for x in ["SCAN", "Thank you", "LOYALTY MEMBER", "Member ID",
+                                               "Customer:", "TIN:", "Phone:", "BILL TO", "Name:",
+                                               "Remaining", "Payed", "This document"]):
                         continue
 
-                    # Start reading after the table header
-                    if "PRODUCT NAME" in line and "QTY" in line:
-                        in_items = True
-                        continue
-
-                    # Stop at the totals line
-                    if "TOTAL TO PAY" in line:
-                        parts = line.split()
-                        for part in parts:
-                            try:
-                                total = float(part.replace('EUR', '').replace('€', '').strip())
-                            except ValueError:
-                                continue
-                        in_items = False
-                        continue
-
-                    if in_items and line:
-                        # Skip footer lines
-                        if any(x in line for x in ["SCAN", "Thank you", "LOYALTY MEMBER",
-                                                    "Member ID", "Customer:", "Points",
-                                                    "Coupons", "Available"]):
-                            continue
-
-                        # Handle loyalty discount lines
-                        if "LOYALTY" in line or "DISC" in line:
+                    # Loyalty/Discount lines
+                    if "LOYALTY" in line.upper() or "DISC" in line.upper():
+                        try:
+                            val = line.split()[-1].replace('€', '').replace('-', '').replace('EUR', '').strip()
                             items.append({
                                 'name': 'LOYALTY DISCOUNT',
                                 'qty': '-',
-                                'total': line.split()[-1].replace('€', '').replace('-', '').strip(),
+                                'total': val,
                                 'is_discount': True
                             })
-                            continue
+                        except:
+                            pass
+                        continue
 
-                        parts = line.split()
-                        if len(parts) >= 3:
-                            try:
-                                price_str = parts[-1].replace('€', '').strip()
-                                qty_str   = parts[-2].strip()
-                                float(price_str)
-                                int(qty_str)
-                                name = " ".join(parts[:-2])
-                                # Strip leading numeric product code
-                                name_parts = name.split()
-                                if name_parts and name_parts[0].isdigit():
-                                    name = " ".join(name_parts[1:])
-                                items.append({
-                                    'name': name.upper(),
-                                    'qty':  qty_str,
-                                    'total': price_str,
-                                    'is_discount': False
-                                })
-                            except (ValueError, IndexError):
-                                continue
+                    # Product lines
+                    parts = line.split()
+                    if len(parts) >= 3:
+                        try:
+                            if is_invoice:
+                                # invoice format: CODE NAME QTY UNIT TOTAL
+                                p_qty = parts[-3]
+                                p_total = parts[-1].replace('EUR', '').replace('€', '').strip()
+                                p_name = " ".join(parts[1:-3]).upper()
+                            else:
+                                # receipt format: NAME QTY TOTAL
+                                p_qty = parts[-2]
+                                p_total = parts[-1].replace('EUR', '').replace('€', '').strip()
+                                p_name = " ".join(parts[:-2]).upper()
+                                if p_name.split() and p_name.split()[0].isdigit():
+                                    p_name = " ".join(p_name.split()[1:])
+
+                            float(p_total)
+                            int(p_qty)
+
+                            items.append({
+                                'name': p_name,
+                                'qty': p_qty,
+                                'total': p_total,
+                                'is_discount': False
+                            })
+                        except (ValueError, IndexError):
+                            continue
     except Exception as e:
         print(f"PDF parse error {filepath}: {e}")
 

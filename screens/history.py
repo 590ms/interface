@@ -103,63 +103,65 @@ class HistoryMixin:
             widget.destroy()
 
         try:
-            day   = self.hist_day.get().zfill(2)
+            day = self.hist_day.get().zfill(2)
             month = self.hist_month.get().zfill(2)
-            year  = self.hist_year.get()
+            year = self.hist_year.get()
             folder = f"{year}-{month}-{day}"
         except Exception:
             messagebox.showerror("Date Error", "Invalid date selected.")
             return
 
         if not os.path.exists(folder):
-            tk.Label(self.hist_scroll_frame,
-                     text=f"No transactions found for  {day}/{month}/{year}",
-                     font=("Segoe UI", 12), bg=self.bg_color, fg="#555555"
-                     ).pack(pady=40)
+            tk.Label(self.hist_scroll_frame, text=f"No transactions found for {day}/{month}/{year}",
+                     font=("Segoe UI", 12), bg=self.bg_color, fg="#555555").pack(pady=40)
             self.daily_total_label.config(text="")
             return
 
         pdf_files = sorted([f for f in os.listdir(folder) if f.endswith(".pdf")])
 
-        if not pdf_files:
-            tk.Label(self.hist_scroll_frame,
-                     text="Folder exists but contains no receipts.",
-                     font=("Segoe UI", 12), bg=self.bg_color, fg="#555555"
-                     ).pack(pady=40)
-            self.daily_total_label.config(text="")
-            return
-
         daily_total = 0.0
         row_num = 0
         for fname in pdf_files:
             filepath = os.path.join(folder, fname)
-
-            # detect cancelled originals (renamed to CANCELLED_receipt_...)
             is_cancelled = fname.startswith("CANCELLED_")
 
-            # skip the cancellation receipt PDFs themselves (cancelled_...)
-            if fname.startswith("cancelled_"):
+            # Skip internal cancellation receipts
+            if fname.lower().startswith("cancelled_receipt_"):
                 continue
 
             row_num += 1
-            try:
-                # strip CANCELLED_ prefix if present before parsing time
-                clean = fname.replace("CANCELLED_", "").replace("receipt_", "").replace(".pdf", "")
-                time_str = f"{clean[:2]}:{clean[2:4]}:{clean[4:6]}"
-            except Exception:
-                time_str = fname
 
+            # --- ROBUST TIME EXTRACTION ---
+            # Instead of replacing specific words, we just take the digits
+            try:
+                # Clean name to find the HHMMSS part
+                clean_name = fname.replace("CANCELLED_", "").replace(".pdf", "")
+                # Find the first sequence of 6 digits
+                import re
+                time_match = re.search(r'\d{6}', clean_name)
+                if time_match:
+                    t = time_match.group()
+                    time_str = f"{t[:2]}:{t[2:4]}:{t[4:6]}"
+                else:
+                    time_str = "??:??:??"
+            except:
+                time_str = "??:??:??"
+
+            # Use our new universal parser
             items, total = parse_receipt_pdf(filepath)
+
             if total and not is_cancelled:
                 daily_total += total
 
-            self._add_receipt_row(row_num, time_str, filepath, items, total, is_cancelled)
+            # Pass a flag if it's an invoice to show a different icon
+            is_invoice = "invoice" in fname.lower()
+            self._add_receipt_row(row_num, time_str, filepath, items, total, is_cancelled, is_invoice)
 
         self.daily_total_label.config(text=f"Day Total:  {daily_total:.2f} EUR")
 
     # ──────────────────────────────────────────────────────────────────────
 
-    def _add_receipt_row(self, number, time_str, filepath, items, total, is_cancelled=False):
+    def _add_receipt_row(self, number, time_str, filepath, items, total, is_cancelled=False, is_invoice=False):
         # Cancelled rows get a dark red tint, normal rows use card color
         card_bg = "#2a1010" if is_cancelled else self.card_color
         card = tk.Frame(self.hist_scroll_frame, bg=card_bg,
@@ -177,14 +179,27 @@ class HistoryMixin:
                              fg=self.accent_color, cursor="hand2")
         arrow_lbl.pack(side="left", padx=(0, 6))
 
-        icon = "🚫" if is_cancelled else "🧾"
+        # 1. Determine the Label text and Color based on status
+        if is_cancelled:
+            label_text = f"TRANSACTION #{number:02d} [CANCELLED]"
+            label_color = "#ff6b6b"  # Red for cancelled
+            icon = "🚫"
+        elif is_invoice:
+            label_text = f"INVOICE #{number:02d}"
+            label_color = self.text_color
+            icon = "🏢"
+        else:
+            label_text = f"RECEIPT #{number:02d}"
+            label_color = self.text_color
+            icon = "🧾"
+
+        # 2. Create the Icon Label
         tk.Label(header, text=icon, font=("Segoe UI", 16),
                  bg=card_bg).pack(side="left", padx=(0, 8))
 
-        label_color = "#ff6b6b" if is_cancelled else self.text_color
-        suffix = "   [CANCELLED]" if is_cancelled else ""
+        # 3. Create the Main Info Label (Replaces your old code)
         tk.Label(header,
-                 text=f"TRANSACTION #{number:02d}   —   {time_str}{suffix}",
+                 text=f"{label_text}   —   {time_str}",
                  font=("Segoe UI", 11, "bold"),
                  bg=card_bg, fg=label_color).pack(side="left")
 
