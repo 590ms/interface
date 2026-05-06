@@ -1,5 +1,56 @@
 import tkinter as tk
 from tkinter import messagebox, simpledialog
+import platform
+
+# ── macOS Tkinter fix ──────────────────────────────────────────────────────────
+# On macOS, tk.Button ignores bg/fg. We replace it with a Label that looks and
+# behaves like a button, preserving all color styling across platforms.
+if platform.system() == "Darwin":
+    _TkButton = tk.Button
+
+    class _MacButton(tk.Label):
+        """Label-based button that respects bg/fg on macOS."""
+        def __init__(self, parent, **kw):
+            self._command = kw.pop("command", None)
+            # Remove kwargs Labels don't understand
+            for k in ("activebackground", "activeforeground", "padx", "pady",
+                       "disabledforeground", "overrelief", "repeatdelay",
+                       "repeatinterval", "state", "takefocus"):
+                kw.pop(k, None)
+            kw.setdefault("relief", "flat")
+            kw.setdefault("cursor", "hand2")
+            super().__init__(parent, **kw)
+            self.bind("<Button-1>", self._on_click)
+            self.bind("<Enter>", lambda e: self.config(bg=self._darken(self.cget("bg"))))
+            self.bind("<Leave>", lambda e: self.config(bg=self._orig_bg))
+            self._orig_bg = self.cget("bg")
+
+        def _on_click(self, event):
+            if self._command:
+                self._command()
+
+        def _darken(self, color):
+            try:
+                r, g, b = self.winfo_rgb(color)
+                r, g, b = int(r*0.85/256), int(g*0.85/256), int(b*0.85/256)
+                return f"#{r:02x}{g:02x}{b:02x}"
+            except Exception:
+                return color
+
+        def config(self, **kw):
+            if "command" in kw:
+                self._command = kw.pop("command")
+            for k in ("activebackground", "activeforeground"):
+                kw.pop(k, None)
+            super().config(**kw)
+            if "bg" in kw:
+                self._orig_bg = kw["bg"]
+
+        configure = config
+
+    tk.Button = _MacButton
+# ──────────────────────────────────────────────────────────────────────────────
+
 from backend import products, check_stock, process_checkout, update_member_rewards, find_card_client, find_walkin_client, deduct_balance
 from click import command
 
@@ -15,11 +66,11 @@ class POSMixin:
         # --- Navigation ---
         if self.user_role == "admin":
             tk.Button(self.main_frame, text="STOCK", bg=self.card_color, fg=self.accent_color,
-                      font=("Segoe UI", 9, "bold"), bd=0, cursor="hand2",
+                      font=("Segoe UI", 9, "bold"), bd=1, relief="flat", highlightthickness=0, cursor="hand2",
                       command=self.stock).place(relx=0.02, rely=0.02, relwidth=0.06, relheight=0.04)
 
             tk.Button(self.main_frame, text="TRANSACRION HISTORY", bg=self.card_color, fg=self.accent_color,
-                      font=("Segoe UI", 9, "bold"), bd=0, cursor="hand2",
+                      font=("Segoe UI", 9, "bold"), bd=1, relief="flat", highlightthickness=0, cursor="hand2",
                       command=self.transaction_history).place(relx=0.18, rely=0.02, relwidth=0.06, relheight=0.04)
 
         admin_btn_text = "EXIT ADMIN" if self.user_role == "admin" else "ADMIN LOGIN"
@@ -36,7 +87,7 @@ class POSMixin:
         )
         self.admin_toggle.place(relx=0.01, rely=0.98, anchor="sw")
         tk.Button(self.main_frame, text="CLIENTS", bg=self.card_color, fg=self.accent_color,
-                  font=("Segoe UI", 9, "bold"), bd=0, cursor="hand2",
+                  font=("Segoe UI", 9, "bold"), bd=1, relief="flat", highlightthickness=0, cursor="hand2",
                   command=self.clients_screen).place(relx=0.1, rely=0.02, relwidth=0.06, relheight=0.04)
         mode_btn_text = "WHOLESALE" if self.user_mode == "retail" else "RETAIL"
         mode_btn_color = self.accent_color if self.user_mode == "retail" else "#f39c12"
@@ -85,27 +136,27 @@ class POSMixin:
 
         # --- Action Buttons ---
         tk.Button(self.main_frame, text="EXIT", bg=self.danger_color, fg=self.text_color,
-                  font=("Segoe UI", 9, "bold"), bd=0,
+                  font=("Segoe UI", 9, "bold"), bd=1, relief="flat", highlightthickness=0,
                   command=self.root.destroy).place(relx=0.92, rely=0.94, relwidth=0.06, relheight=0.04)
 
         tk.Button(self.main_frame, text="CASH", bg=self.accent_color, fg=self.text_color,
-                  font=("Segoe UI", 9, "bold"), bd=0,
+                  font=("Segoe UI", 9, "bold"), bd=1, relief="flat", highlightthickness=0,
                   command=self.change_window).place(relx=0.5, rely=0.325 , relwidth=0.08, relheight=0.05)
 
         tk.Button(self.main_frame, text="REMOVE PRODUCT", bg=self.accent_color, fg=self.text_color,
-                  font=("Segoe UI", 9, "bold"), bd=0,
+                  font=("Segoe UI", 9, "bold"), bd=1, relief="flat", highlightthickness=0,
                   command=self.line_removal).place(relx=0.5, rely=0.256, relwidth=0.08, relheight=0.05)
         if self.user_mode == "wholesale" :
             tk.Button(self.main_frame, text="Nexus Card", bg=self.accent_color, fg=self.text_color,
-                      font=("Segoe UI", 9, "bold"), bd=0,
+                      font=("Segoe UI", 9, "bold"), bd=1, relief="flat", highlightthickness=0,
                       command=self.attach_clientcard).place(relx=0.5, rely=0.394, relwidth=0.08, relheight=0.05)
             tk.Button(self.main_frame, text="Invoice", bg=self.accent_color, fg=self.text_color,
-                      font=("Segoe UI", 9, "bold"), bd=0,
+                      font=("Segoe UI", 9, "bold"), bd=1, relief="flat", highlightthickness=0,
                       command=self.attach_client).place(relx=0.5, rely=0.463, relwidth=0.08, relheight=0.05)
 
 
         tk.Button(self.main_frame, text="LOYALTY", bg="#f39c12", fg=self.text_color,
-                  font=("Segoe UI", 9, "bold"), bd=0,
+                  font=("Segoe UI", 9, "bold"), bd=1, relief="flat", highlightthickness=0,
                   command=self.loyalty_menu).place(relx=0.1, rely=0.86, relwidth=0.35, relheight=0.05)
         
 
@@ -138,7 +189,7 @@ class POSMixin:
         row, col = 0, 0
         for text, color in buttons:
             tk.Button(keypad_frame, text=text, font=("Segoe UI", 14, "bold"),
-                      bg=color, fg=self.text_color, bd=0, activebackground="#444",
+                      bg=color, fg=self.text_color, bd=1, relief="flat", highlightthickness=0, activebackground="#444",
                       command=lambda x=text: self.keypad_click(x)
                       ).grid(row=row, column=col, sticky="nsew", padx=4, pady=4)
             col += 1
@@ -341,7 +392,7 @@ class POSMixin:
                 messagebox.showerror("Not Found", "No client found with that TIN.")
 
         tk.Button(addc_window, text="ATTACH CLIENT", bg=self.accent_color, fg=self.text_color,
-                  font=("Segoe UI", 10, "bold"), bd=0,
+                  font=("Segoe UI", 10, "bold"), bd=1, relief="flat", highlightthickness=0,
                   command=findc).pack(pady=10, padx=60, fill="x", ipady=8)
         addc_window.bind("<Return>", lambda e: findc())
 
@@ -378,7 +429,7 @@ class POSMixin:
                 messagebox.showerror("Not Found", "Invalid Card ID or Card Inactive.")
 
         tk.Button(addc_window, text="PAY WITH CARD", bg=self.success_color, fg=self.text_color,
-                    font=("Segoe UI", 12, "bold"), bd=0, cursor="hand2",
+                    font=("Segoe UI", 12, "bold"), bd=1, relief="flat", highlightthickness=0, cursor="hand2",
                     command=findcard).pack(pady=20, padx=60, fill="x", ipady=10)
 
         addc_window.bind("<Return>", lambda e: findcard())
@@ -405,7 +456,7 @@ class POSMixin:
         add_change_window.configure(bg=self.bg_color)
 
         tk.Button(add_change_window , textvariable=self.button_var, bg=self.card_color,
-                  fg=self.text_color, font=("Segoe UI", 11, "bold"), bd=0, cursor="hand2",
+                  fg=self.text_color, font=("Segoe UI", 11, "bold"), bd=1, relief="flat", highlightthickness=0, cursor="hand2",
                   command=lambda:[self.handle_cash(),add_change_window.destroy()],).place(relx=0.3, rely=0.05, relwidth=0.4, relheight=0.07)
         #input box
         display_var = tk.StringVar(value="0")
@@ -441,7 +492,7 @@ class POSMixin:
 
             tk.Button(popup, text="OK",
                       bg=self.accent_color, fg=self.text_color,
-                      font=("Segoe UI", 11, "bold"), bd=0, cursor="hand2",
+                      font=("Segoe UI", 11, "bold"), bd=1, relief="flat", highlightthickness=0, cursor="hand2",
                       command=lambda: [self.handle_cash(),popup.destroy(),add_change_window.destroy()]
                       ).place(relx=0.25, rely=0.7,relwidth=0.5, relheight=0.15)
 
@@ -484,7 +535,7 @@ class POSMixin:
                 tk.Button(keypad_frame, text=label,
                           font=("Segoe UI", 16, "bold"),
                           bg=bg, fg=self.text_color,
-                          bd=0, cursor="hand2", relief="groove",
+                          bd=1, relief="groove", highlightthickness=0, cursor="hand2",
                           command=lambda v=label: press(v)
                           ).grid(row=row_idx, column=col_idx,
                                  padx=5, pady=5, sticky="nsew")
@@ -501,12 +552,12 @@ class POSMixin:
         add_change_window.bind("<Return>", lambda event: changes())
         tk.Button(add_change_window, text="ENTER",
                   bg=self.accent_color, fg=self.text_color,
-                  font=("Segoe UI", 11, "bold"), bd=0, cursor="hand2",
+                  font=("Segoe UI", 11, "bold"), bd=1, relief="flat", highlightthickness=0, cursor="hand2",
                   command=changes).place(relx=0.05, rely=0.88,
                                                   relwidth=0.45, relheight=0.08)
         tk.Button(add_change_window, text="CLOSE",
                   bg=self.danger_color, fg=self.text_color,
-                  font=("Segoe UI", 11, "bold"), bd=0, cursor="hand2",
+                  font=("Segoe UI", 11, "bold"), bd=1, relief="flat", highlightthickness=0, cursor="hand2",
                   command=add_change_window.destroy).place(relx=0.55, rely=0.88,
                                                     relwidth=0.4, relheight=0.08)
 

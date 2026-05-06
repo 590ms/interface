@@ -29,8 +29,21 @@ class POSApp:
         self.danger_color  = "#e74c3c"
         self.success_color = "#2ecc71"
 
+        self.root.tk.call('tk', 'scaling', 1.0)
+        self.root.option_add('*Background',        self.bg_color)
+        self.root.option_add('*Foreground',        self.text_color)
+        self.root.option_add('*Button.Background', self.card_color)
+        self.root.option_add('*Button.Foreground', self.text_color)
+        self.root.option_add('*Entry.Background',  self.card_color)
+        self.root.option_add('*Entry.Foreground',  self.text_color)
+        self.root.option_add('*Listbox.Background',self.bg_color)
+        self.root.option_add('*Listbox.Foreground',self.text_color)
+        self.root.option_add('*highlightThickness', 0)
+
         self.main_frame = tk.Frame(root, bg=self.bg_color)
         self.main_frame.pack(expand=True, fill="both")
+        self.main_frame.update()
+ 
 
         # Load data and show the main POS screen
         update_memory()

@@ -8,14 +8,18 @@ import string
 import os
 import pdfplumber
 import re
+from dotenv import load_dotenv
 
-
+load_dotenv()
+print(os.getenv('DB_HOST'))  # Load environment variables from .env file
 # Database Configuration
 db_config = {
-    'host': 'shopdb.cx6wcaeg21tg.eu-north-1.rds.amazonaws.com',
-    'user': 'admin',
-    'password': '123456789',
-    'database': 'nexus_db'
+    'host': os.getenv('DB_HOST'),
+    'port': int(os.getenv('DB_PORT')),
+    'user': os.getenv('DB_USER'),
+    'password': os.getenv('DB_PASSWORD'),
+    'database': os.getenv('DB_NAME'),
+    'ssl': {}
 }
 
 products = []
