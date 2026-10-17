@@ -23,7 +23,7 @@ A point-of-sale desktop application built with Python and Tkinter, backed by a M
 ```bash
 git clone https://github.com/590ms/interface.git
 cd interface
-pip install -r requirements.txt python-dotenv
+pip install -r requirements.txt
 ```
 
 Create a `.env` file in the project folder with your own database details:
